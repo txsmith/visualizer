@@ -1,10 +1,11 @@
 class OpenAi
   API_ENDPOINT = "https://api.openai.com/v1/responses".freeze
-  API_KEY = Rails.application.credentials.open_ai.api_key
+  API_KEY = ENV["OPEN_AI_API_KEY"] || Rails.application.credentials.dig(:open_ai, :api_key)
   MODEL = "gpt-5-nano".freeze
   PROMPT_ID = "pmpt_6895a7ef261c81979e303c72bfc4e522050671dff051834a".freeze
 
   def message(content, attempt: 1)
+    raise "OpenAI API key not configured" if API_KEY.blank?
     uri = URI(API_ENDPOINT)
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
