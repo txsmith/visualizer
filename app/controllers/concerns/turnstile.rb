@@ -2,7 +2,7 @@ module Turnstile
   TURNSTILE_URI = URI("https://challenges.cloudflare.com/turnstile/v0/siteverify")
 
   def verify_turnstile
-    return true unless Rails.env.production?
+    return true unless Rails.env.production? && ENV["TURNSTILE_DISABLED"].blank?
 
     response = Net::HTTP.post(TURNSTILE_URI, turnstile_params.to_json, "Content-Type" => "application/json")
     JSON.parse(response.body)["success"] == true
