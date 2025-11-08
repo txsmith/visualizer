@@ -13,6 +13,9 @@ class CoffeeBagScraper
   def page_content(url, limit = 5)
     raise ArgumentError, "Too many HTTP redirects" if limit.zero?
 
+    # Ensure URL has scheme
+    url = "https://#{url}" unless url.match?(/\A[a-z][a-z0-9+\-.]*:/i)
+
     response = Net::HTTP.get_response(URI(url))
     case response
     when Net::HTTPSuccess
