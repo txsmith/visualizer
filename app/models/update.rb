@@ -7,6 +7,8 @@ class Update < ApplicationRecord
   has_one_attached :image do |attachable|
     attachable.variant :social, resize_to_limit: [800, 500], format: :jpeg, saver: {strip: true}
   end
+
+  validates :slug, uniqueness: true
 end
 
 # == Schema Information
