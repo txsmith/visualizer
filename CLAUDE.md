@@ -1,0 +1,3 @@
+# Visualizer
+
+Visualizer is a web application for espresso enthusiasts to track, analyze, and visualize their espresso shots with support for multiple devices including Decent espresso machines, Beanconqueror, Gaggiuino, GaggiMate, Smart Espresso Profiler, and Pressensor. Users can upload shot files (via web interface or API) to store brewing data, metadata, and telemetry; manage their coffee bag inventory with detailed information about roasters, origins, and tasting notes; share shots with others via share codes; view brewing statistics and charts; and access their data through a REST API with OAuth 2.0 authentication for integration with third-party applications.
