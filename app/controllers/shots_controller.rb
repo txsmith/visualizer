@@ -1,13 +1,13 @@
 class ShotsController < ApplicationController
-  include CursorPaginatable
-
-  FILTERS = %i[profile_title bean_brand bean_type grinder_model bean_notes espresso_notes].freeze
+  include Filterable
+  include Paginatable
+  include Shots::Editing
 
   before_action :require_authentication, except: %i[show compare share beanconqueror]
-  before_action :check_premium!, only: :coffee_bag_form
-  before_action :load_shot, only: %i[show compare remove_image]
+  before_action :load_shot, only: %i[show compare share beanconqueror]
   before_action :create_shared_shot, only: %i[share beanconqueror]
-  before_action :load_users_shot, only: %i[edit update destroy]
+  before_action :load_users_shot, only: %i[edit update remove_image destroy]
+  before_action :load_coffee_bags_for_form, only: :edit
   before_action :load_users_shots, only: %i[index search]
   before_action :load_related_shots, only: %i[show edit]
 
@@ -19,6 +19,9 @@ class ShotsController < ApplicationController
 
   def show
     @chart = ShotChart.new(@shot, Current.user) if @shot.information
+  rescue ShotChart::ParsedShot::NoData
+    flash[:alert] = "This shot does not have enough chart data to compare."
+    redirect_back_or_to default_path
   end
 
   def compare
@@ -27,6 +30,9 @@ class ShotsController < ApplicationController
   rescue ActiveRecord::RecordNotFound
     flash[:alert] = "Comparison shot not found!"
     redirect_to(@shot || :root)
+  rescue ShotChart::ParsedShot::NoData
+    flash[:alert] = "This shot does not have enough chart data to compare."
+    redirect_back_or_to default_path
   end
 
   def share
@@ -38,12 +44,7 @@ class ShotsController < ApplicationController
   end
 
   def edit
-    authorize @shot
-    shots = Current.user.shots
-    %i[grinder_model bean_brand bean_type].each do |method|
-      unique_values = Rails.cache.fetch("#{shots.cache_key_with_version}/#{method}") { shots.distinct.pluck(method).compact_blank }
-      instance_variable_set(:"@#{method.to_s.pluralize}", unique_values.sort_by(&:downcase))
-    end
+    authorize! @shot
   end
 
   def create
@@ -70,21 +71,19 @@ class ShotsController < ApplicationController
   end
 
   def update
-    authorize @shot
+    authorize! @shot
     @shot.update(update_shot_params)
-    if params[:shot][:image].present? && Current.user.premium?
-      if ActiveStorage.variable_content_types.include?(params[:shot][:image].content_type)
-        @shot.image.attach(params[:shot][:image])
-      else
-        flash.now[:alert] = "Image must be a valid image file."
-      end
-    end
+    apply_brewdata_updates
+    attach_image(params.dig(:shot, :image)) if Current.user.premium?
     flash[:notice] = "Shot successfully updated."
+  rescue Shots::Editing::InvalidImageError => e
+    flash[:alert] = e.message
+  ensure
     redirect_to action: :show
   end
 
   def destroy
-    authorize @shot
+    authorize! @shot
     @shot.destroy!
 
     respond_to do |format|
@@ -99,17 +98,9 @@ class ShotsController < ApplicationController
   end
 
   def remove_image
+    authorize! @shot
     @shot.image.purge
     render turbo_stream: turbo_stream.remove("shot-image")
-  end
-
-  def coffee_bag_form
-    @coffee_bag = CoffeeBag.find_by(id: params[:coffee_bag])
-    @roasters = Current.user.roasters.order_by_name
-    @roaster = params.key?(:roaster_id) ? Current.user.roasters.find_by(id: params[:roaster_id]) : @coffee_bag&.roaster
-    @coffee_bags = @roaster&.coffee_bags&.active&.by_roast_date
-
-    render layout: false
   end
 
   private
@@ -130,12 +121,13 @@ class ShotsController < ApplicationController
     @shots = Current.user.shots.with_attached_image
 
     if Current.user.premium?
-      FILTERS.select { params[it].present? }.each do |filter|
-        @shots = @shots.where("#{filter} ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[filter])}%")
+      apply_standard_filters_to_shots
+      if params[:all_notes].present?
+        notes = "%#{ActiveRecord::Base.sanitize_sql_like(params[:all_notes])}%"
+        @shots = @shots.where("bean_notes ILIKE :notes OR espresso_notes ILIKE :notes OR private_notes ILIKE :notes", notes:)
       end
-      @shots = @shots.where(espresso_enjoyment: (params[:min_enjoyment])..) if params[:min_enjoyment].to_i.positive?
-      @shots = @shots.where(espresso_enjoyment: ..(params[:max_enjoyment])) if params[:max_enjoyment].present? && params[:max_enjoyment].to_i < 100
-      @shots = @shots.where(coffee_bag_id: params[:coffee_bag]) if params[:coffee_bag].present?
+      @coffee_bag = Current.user.coffee_bags.find_by(id: params[:coffee_bag]) if params[:coffee_bag].present?
+      @shots = @shots.where(coffee_bag_id: @coffee_bag.id) if @coffee_bag
       @shots = @shots.where(id: ShotTag.joins(:tag).where(tag: {slug: params[:tag]}).select(:shot_id)) if params[:tag].present?
     else
       @premium_count = @shots.premium.count
@@ -150,17 +142,16 @@ class ShotsController < ApplicationController
     @related_shots = @shot.related_shots.pluck(:id, :profile_title, :bean_type, :start_time).sort_by { it[3] }.reverse
   end
 
+  def load_coffee_bags_for_form
+    return unless Current.user.coffee_management_enabled?
+
+    @coffee_bags = Current.user.coffee_bags.active.by_brewability.by_roast_date.by_name.includes(:roaster).to_a
+    @coffee_bags = [@shot.coffee_bag, *@coffee_bags] if @shot&.coffee_bag && @coffee_bags.exclude?(@shot.coffee_bag)
+  end
+
   def create_shared_shot
-    load_shot
     @shared_shot = SharedShot.find_or_initialize_by(shot: @shot, user: Current.user)
     @shared_shot.created_at = Time.current
     @shared_shot.save!
-  end
-
-  def update_shot_params
-    allowed = [:image, :profile_title, :barista, :bean_weight, :private_notes, :canonical_coffee_bag_id, *Parsers::Base::EXTRA_DATA_METHODS]
-    allowed << [:tag_list, {metadata: Current.user.metadata_fields}] if Current.user.premium?
-    allowed << :coffee_bag_id if Current.user.coffee_management_enabled?
-    params.expect(shot: allowed)
   end
 end

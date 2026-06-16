@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import { appsignal } from "controllers/application"
 
 const uuidV4Regex = /shots\/([A-F\d]{8}-[A-F\d]{4}-4[A-F\d]{3}-[89AB][A-F\d]{3}-[A-F\d]{12})/i
 
@@ -33,13 +34,14 @@ export default class extends Controller {
       const data = await response.json()
       this.fillFormFields(data)
     } catch (error) {
+      appsignal.sendError(error)
       console.error("Error copying shot data:", error)
       alert("Error copying shot data. Something went wrong. See console for details.")
     }
   }
 
   fillFormFields(data) {
-    const fields = ["barista", "grinder_model", "grinder_setting", "bean_brand", "bean_type", "roast_date", "roast_level", "espresso_notes", "bean_notes"]
+    const fields = ["barista", "bean_weight", "drink_weight", "grinder_model", "grinder_setting", "bean_brand", "bean_type", "roast_date", "roast_level", "espresso_notes", "bean_notes", "private_notes", "fragrance", "aroma", "flavor", "aftertaste", "acidity", "bitterness", "sweetness", "mouthfeel"]
     fields.forEach(field => this.setFieldValue(`shot[${field}]`, data[field]))
 
     if (data.metadata) {
@@ -50,16 +52,28 @@ export default class extends Controller {
 
     if (data.tags && document.getElementById("tags_controller")) {
       const tagsController = this.application.getControllerForElementAndIdentifier(document.getElementById("tags_controller"), "tags")
+      const tagField = document.querySelector('#tags_controller [name="shot[tag_list]"]')
+      const currentTags = tagsController.tagify.value.map(tag => tag.value)
+
+      if (tagField && tagField.dataset.previousValue === undefined) {
+        tagField.dataset.previousValue = JSON.stringify(currentTags)
+      }
+
       tagsController.tagify.removeAllTags()
       tagsController.tagify.addTags(data.tags)
+
+      if (tagField && JSON.stringify(currentTags) != JSON.stringify(data.tags)) {
+        tagsController.inputTarget.classList.add("!bg-oxford-blue-50", "dark:!bg-oxford-blue-900")
+        this.showRevert(tagField, currentTags.join(", "), true)
+      }
     }
 
-    if (data.coffee_bag_id && data.roaster_id) {
-      const frame = document.getElementById("coffee_bag_fields")
-      if (frame) {
-        frame.src = `/shots/coffee_bag_form?coffee_bag=${data.coffee_bag_id}`
-        frame.reload()
-      }
+    if (data.coffee_bag_id) {
+      const hiddenInput = document.querySelector('input[name="shot[coffee_bag_id]"]')
+      const comboboxElement = hiddenInput?.closest('[data-controller~="combobox"]')
+      const comboboxController = comboboxElement ? this.application.getControllerForElementAndIdentifier(comboboxElement, "combobox") : null
+
+      if (comboboxController) comboboxController.selectById(data.coffee_bag_id)
     }
 
     if (document.getElementById("shot_canonical_coffee_bag_search")) {
@@ -69,15 +83,16 @@ export default class extends Controller {
   }
 
   updateField(field, newValue, isTags = false) {
+    if (this.shouldPreserveExistingValue(field)) return
+
     const currentValue = field.value || ""
 
-    if (field.dataset.previousValue === undefined) {
-      field.dataset.previousValue = currentValue
-    }
+    if (field.dataset.previousValue === undefined) field.dataset.previousValue = currentValue
 
     const originalValue = field.dataset.previousValue
     if (currentValue != newValue) {
       field.value = newValue
+      field.dispatchEvent(new Event("input", { bubbles: true }))
 
       if (isTags) {
         document.getElementById("tags_input").classList.add("!bg-oxford-blue-50", "dark:!bg-oxford-blue-900")
@@ -85,49 +100,78 @@ export default class extends Controller {
         field.classList.add("!bg-oxford-blue-50", "dark:!bg-oxford-blue-900")
       }
 
-      const label = isTags ? document.querySelector(`label[for="tags_input"]`) : document.querySelector(`label[for="${field.id}"]`)
-      const actionName = isTags ? "rollbackTags" : "rollback"
-      if (label && !label.querySelector(`[data-action*="${actionName}"]`)) {
-        const originalText = label.innerHTML
-        label.innerHTML = `<div class="flex items-center justify-between"><span>${originalText}</span><span class="ml-2 font-light cursor-pointer standard-link" data-action="click->shot-copier#${actionName}" title="${originalValue}">Revert</span></div>`
-      }
+      this.showRevert(field, originalValue, isTags)
     }
+  }
+
+  showRevert(field, originalValue, isTags = false) {
+    const revert = this.revertButton(field.id, isTags)
+    if (!revert) return
+
+    revert.title = originalValue
+    revert.classList.remove("hidden")
+  }
+
+  revertButton(fieldId, isTags = false) {
+    const selector = isTags ? '[data-action="click->shot-copier#rollbackTags"]' : `[data-revert-for="${fieldId}"]`
+    return document.querySelector(selector)
+  }
+
+  removeRevert(field, isTags = false) {
+    const revert = this.revertButton(field.id, isTags)
+    if (!revert) return
+
+    revert.title = ""
+    revert.classList.add("hidden")
   }
 
   setFieldValue = (name, value) => {
     const field = document.querySelector(`[name="${name}"]`)
     if (!field) return
+    if (value === undefined) return
 
-    this.updateField(field, value || "", false)
+    this.updateField(field, value ?? "", false)
+  }
+
+  shouldPreserveExistingValue(field) {
+    if (field.dataset.shotCopierPreserveExistingValue !== "true") return false
+
+    const currentValue = (field.value ?? "").toString().trim()
+    return !["", "0", "0.0"].includes(currentValue)
   }
 
   rollback(event) {
-    const label = event.target.closest("label")
-    const el = document.getElementById(label.getAttribute("for"))
-
-    this.handleRollback(el, label)
+    event.preventDefault()
+    const field = document.getElementById(event.currentTarget.dataset.revertFor)
+    this.handleRollback(field)
   }
 
   rollbackTags(event) {
-    const label = event.target.closest("label")
-    document.getElementById("tags_input").classList.remove("!bg-oxford-blue-50", "dark:!bg-oxford-blue-900")
+    event.preventDefault()
 
-    this.handleRollback(document.getElementById("tag_list"), label, () => {
-      this.application.getControllerForElementAndIdentifier(document.getElementById("tags_controller"), "tags").renderTags()
-    })
+    const tagField = document.querySelector('#tags_controller [name="shot[tag_list]"]')
+    if (!tagField || tagField.dataset.previousValue === undefined) return
+
+    const tagsController = this.application.getControllerForElementAndIdentifier(document.getElementById("tags_controller"), "tags")
+    tagsController.inputTarget.classList.remove("!bg-oxford-blue-50", "dark:!bg-oxford-blue-900")
+    const previousTags = JSON.parse(tagField.dataset.previousValue)
+
+    tagsController.tagify.removeAllTags()
+    tagsController.tagify.addTags(previousTags)
+
+    delete tagField.dataset.previousValue
+    this.removeRevert(tagField, true)
   }
 
-  handleRollback(field, label, renderCallback = null) {
-    if (field && field.dataset.previousValue !== undefined) {
-      field.value = field.dataset.previousValue
-      field.classList.remove("!bg-oxford-blue-50", "dark:!bg-oxford-blue-900")
-      delete field.dataset.previousValue
+  handleRollback(field, isTags = false, renderCallback = null) {
+    if (!field || field.dataset.previousValue === undefined) return
 
-      label.innerHTML = label.querySelector("div > span").innerHTML
+    field.value = field.dataset.previousValue
+    field.dispatchEvent(new Event("input", { bubbles: true }))
+    field.classList.remove("!bg-oxford-blue-50", "dark:!bg-oxford-blue-900")
+    delete field.dataset.previousValue
+    this.removeRevert(field, isTags)
 
-      if (renderCallback) {
-        renderCallback()
-      }
-    }
+    if (renderCallback) renderCallback()
   }
 }

@@ -1,8 +1,8 @@
 source "https://rubygems.org"
-git_source(:github) { |repo| "https://github.com/#{repo}.git" }
+git_source(:github) { "https://github.com/#{it}.git" }
 
-ruby "3.4.7"
-
+gem "action_policy"
+gem "active_job-performs"
 gem "active_link_to"
 gem "appsignal"
 gem "aws-sdk-s3", require: false
@@ -25,14 +25,15 @@ gem "postmark-rails"
 gem "propshaft"
 gem "inline_svg" # rubocop:disable Bundler/OrderedGems
 gem "puma"
-gem "pundit"
 gem "rack-cors"
-gem "rails", "~> 8.1.0.beta1"
+gem "rails"
 gem "responders"
+gem "ruby-vips"
+gem "scalar_ruby"
+gem "slowpoke"
 gem "solid_cable"
 gem "solid_cache"
 gem "solid_queue"
-gem "sqlite3"
 gem "stimulus-rails"
 gem "tailwindcss-rails"
 gem "thruster"
@@ -43,17 +44,21 @@ gem "web-push"
 
 group :development, :test do
   gem "debug", require: "debug/prelude"
+  gem "pg_query"
+  gem "prosopite"
   gem "vernier"
 end
 
 group :development do
   gem "actual_db_schema"
   gem "annotaterb"
+  gem "benchmark", require: false
   gem "benchmark-ips"
   gem "brakeman", require: false
   gem "bundler-audit"
   gem "herb"
   gem "hotwire-spark"
+  gem "htmlbeautifier"
   gem "kamal"
   gem "letter_opener"
   gem "reactionview"
@@ -64,6 +69,7 @@ end
 
 group :test do
   gem "factory_bot_rails"
+  gem "minitest"
   gem "retest"
   gem "webmock"
 end

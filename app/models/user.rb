@@ -4,7 +4,8 @@ class User < ApplicationRecord
 
   has_secure_password
 
-  EMAIL_NOTIFICATIONS = %w[yearly_brew newsletter].freeze
+  EMAIL_NOTIFICATIONS = %w[yearly_brew newsletter shot_uploaded].freeze
+  OPT_IN_EMAIL_NOTIFICATIONS = %w[shot_uploaded].freeze
   DATE_FORMATS = {
     "dd.mm.yyyy" => "%d.%m.%Y",
     "mm.dd.yyyy" => "%m.%d.%Y",
@@ -23,6 +24,7 @@ class User < ApplicationRecord
   has_many :tags, dependent: :destroy
   has_many :push_subscriptions, dependent: :destroy
   has_many :webauthn_credentials, dependent: :destroy
+  has_many :dropdown_values, dependent: :destroy
 
   has_one_attached :avatar do |attachable|
     attachable.variant :thumb, resize_to_limit: [96, 96], format: :jpeg, saver: {strip: true}
@@ -32,8 +34,10 @@ class User < ApplicationRecord
   validates :password, length: {minimum: 8}, if: :password_digest_changed?
   validates :name, presence: true, if: :public?
   validates :lemon_squeezy_customer_id, uniqueness: true, allow_blank: true
+  validates :creem_customer_id, uniqueness: true, allow_blank: true
 
   before_validation :set_webauthn_id
+  before_validation :set_default_unsubscribed_from, on: :create
   after_update_commit :reflect_public_to_shots, if: -> { saved_change_to_public? }
   after_update_commit :update_coffee_management, if: -> { saved_change_to_coffee_management_enabled? }
   after_update_commit :update_date_format_on_shots, if: -> { coffee_management_enabled? && saved_change_to_date_format? }
@@ -80,7 +84,7 @@ class User < ApplicationRecord
     premium_expires_at&.future? || supporter
   end
 
-  def has_airtable? # rubocop:disable Naming/PredicateName
+  def has_airtable?
     premium? && identities.by_provider(:airtable).exists?
   end
 
@@ -88,11 +92,19 @@ class User < ApplicationRecord
     premium? && coffee_management_enabled
   end
 
+  def can_manage_premium?
+    creem_customer_id.present? || lemon_squeezy_customer_id.present?
+  end
+
   def wants_fahrenheit?
     temperature_unit == "Fahrenheit"
   end
 
-  def metadata_fields
+  def shot_metadata_fields
+    super.presence || []
+  end
+
+  def coffee_bag_metadata_fields
     super.presence || []
   end
 
@@ -127,6 +139,10 @@ class User < ApplicationRecord
     self.webauthn_id ||= WebAuthn.generate_user_id
   end
 
+  def set_default_unsubscribed_from
+    self.unsubscribed_from = OPT_IN_EMAIL_NOTIFICATIONS if self[:unsubscribed_from].nil?
+  end
+
   def generate_slug
     super if public?
   end
@@ -136,14 +152,11 @@ class User < ApplicationRecord
   end
 
   def update_coffee_management
-    roasters.destroy_all
-    return unless coffee_management_enabled?
-
-    EnableCoffeeManagementJob.perform_later(self)
+    CoffeeManagementUpdateJob.perform_later(self)
   end
 
   def update_date_format_on_shots
-    ActiveJob.perform_all_later(coffee_bags.pluck(:id).map { |id| RefreshCoffeeBagFieldsOnShotsJob.new(CoffeeBag.new(id:)) })
+    CoffeeBag.refresh_shot_values_later_bulk(coffee_bags.select(:id))
   end
 end
 
@@ -152,39 +165,41 @@ end
 # Table name: users
 # Database name: primary
 #
-#  id                        :uuid             not null, primary key
-#  admin                     :boolean
-#  beta                      :boolean
-#  chart_settings            :jsonb
-#  coffee_management_enabled :boolean
-#  communication             :jsonb
-#  date_format               :string
-#  decent_email              :string
-#  decent_token              :string
-#  developer                 :boolean
-#  email                     :string           default(""), not null
-#  github                    :string
-#  hide_shot_times           :boolean
-#  last_read_change          :datetime
-#  metadata_fields           :jsonb
-#  name                      :string
-#  password_digest           :string           default(""), not null
-#  premium_expires_at        :datetime
-#  public                    :boolean          default(FALSE)
-#  skin                      :string
-#  slug                      :string
-#  supporter                 :boolean
-#  temperature_unit          :string
-#  timezone                  :string
-#  unsubscribed_from         :jsonb
-#  created_at                :datetime         not null
-#  updated_at                :datetime         not null
-#  lemon_squeezy_customer_id :string
-#  stripe_customer_id        :string
-#  webauthn_id               :string
+#  id                         :uuid             not null, primary key
+#  admin                      :boolean          default(FALSE), not null
+#  beta                       :boolean          default(FALSE), not null
+#  chart_settings             :jsonb
+#  coffee_bag_metadata_fields :jsonb
+#  coffee_management_enabled  :boolean          default(FALSE), not null
+#  communication              :jsonb
+#  date_format                :string
+#  developer                  :boolean          default(FALSE), not null
+#  email                      :string           default(""), not null
+#  github                     :string
+#  hide_shot_times            :boolean          default(FALSE), not null
+#  last_read_change           :datetime
+#  name                       :string
+#  password_digest            :string           default(""), not null
+#  premium_expires_at         :datetime
+#  public                     :boolean          default(FALSE), not null
+#  shot_metadata_fields       :jsonb
+#  skin                       :string
+#  slug                       :string
+#  supporter                  :boolean          default(FALSE), not null
+#  temperature_unit           :string
+#  timezone                   :string
+#  unified_chart              :boolean          default(FALSE), not null
+#  unsubscribed_from          :jsonb
+#  created_at                 :datetime         not null
+#  updated_at                 :datetime         not null
+#  creem_customer_id          :string
+#  lemon_squeezy_customer_id  :string
+#  stripe_customer_id         :string
+#  webauthn_id                :string
 #
 # Indexes
 #
+#  index_users_on_creem_customer_id          (creem_customer_id) UNIQUE
 #  index_users_on_email                      (email) UNIQUE
 #  index_users_on_lemon_squeezy_customer_id  (lemon_squeezy_customer_id) UNIQUE
 #  index_users_on_slug                       (slug) UNIQUE

@@ -1,6 +1,10 @@
 class Identity < ApplicationRecord
   include Lockable
 
+  performs :refresh_token!, queue_as: :high do
+    retry_on PgLock::UnableToLockError, wait: :polynomially_longer
+  end
+
   belongs_to :user
   has_one :airtable_info, dependent: :destroy
 
@@ -14,9 +18,9 @@ class Identity < ApplicationRecord
   end
 
   def refresh_token!
-    with_lock!(refresh_token_key) do
-      next if valid_token?
+    return if valid_token?
 
+    with_lock!(refresh_token_key) do
       new_token = OAuth2::AccessToken.new(strategy.client, token, {expires_at: expires_at.to_i, refresh_token:})
       new_token = new_token.refresh!
       update!(token: new_token.token, refresh_token: new_token.refresh_token, expires_at: Time.zone.at(new_token.expires_at))
@@ -65,10 +69,10 @@ end
 #  id            :uuid             not null, primary key
 #  blob          :jsonb
 #  expires_at    :datetime
-#  provider      :string
+#  provider      :string           not null
 #  refresh_token :string
 #  token         :string
-#  uid           :string
+#  uid           :string           not null
 #  created_at    :datetime         not null
 #  updated_at    :datetime         not null
 #  user_id       :uuid             not null

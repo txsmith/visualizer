@@ -29,6 +29,14 @@ module Airtable
       assert_nil @shot.bean_type
       assert_nil @shot.bean_weight
       assert_nil @shot.espresso_enjoyment
+      assert_nil @shot.fragrance
+      assert_nil @shot.aroma
+      assert_nil @shot.flavor
+      assert_nil @shot.aftertaste
+      assert_nil @shot.acidity
+      assert_nil @shot.sweetness
+      assert_nil @shot.bitterness
+      assert_nil @shot.mouthfeel
       assert_empty(@shot.metadata)
 
       records = Airtable::Shots.new(@user).download_multiple
@@ -42,8 +50,46 @@ module Airtable
       assert_equal "Genji Challa", @shot.bean_type
       assert_equal "17.0", @shot.bean_weight
       assert_equal 80, @shot.espresso_enjoyment
+      assert_nil @shot.fragrance
       assert_equal({"Bean variety" => "Catuai", "Portafilter basket" => "Decent"}, @shot.metadata)
       assert_no_enqueued_jobs only: AirtableUploadRecordJob
+    end
+
+    test "it downloads tasting assessment fields from airtable" do
+      stub_request(:get, "https://api.airtable.com/v0/#{@identity.airtable_info.base_id}/#{@identity.airtable_info.tables["Shots"]["id"]}?filterByFormula=DATETIME_DIFF%28NOW%28%29%2C+LAST_MODIFIED_TIME%28%29%2C+%27minutes%27%29+%3C+60")
+        .to_return(
+          status: 200,
+          body: {
+            records: [{
+              id: @shot.airtable_id,
+              fields: {
+                "ID" => @shot.id,
+                "Fragrance" => 10,
+                "Aroma" => 9,
+                "Flavor" => 12,
+                "Aftertaste" => 11,
+                "Acidity" => 7,
+                "Bitterness" => 6,
+                "Sweetness" => 8,
+                "Mouthfeel" => 13
+              }
+            }]
+          }.to_json
+        )
+
+      assert_no_enqueued_jobs only: AirtableUploadRecordJob do
+        Airtable::Shots.new(@user).download_multiple
+      end
+      @shot.reload
+
+      assert_equal 10, @shot.fragrance
+      assert_equal 9, @shot.aroma
+      assert_equal 12, @shot.flavor
+      assert_equal 11, @shot.aftertaste
+      assert_equal 7, @shot.acidity
+      assert_equal 8, @shot.sweetness
+      assert_equal 6, @shot.bitterness
+      assert_equal 13, @shot.mouthfeel
     end
 
     test "it downloads coffee bag relationship from airtable when coffee management is enabled" do
@@ -139,10 +185,31 @@ module Airtable
       assert_requested(stub)
     end
 
+    test "it uploads tasting assessment fields to airtable" do
+      Shot.find(@shot.id).update!(fragrance: 10, aroma: 9, flavor: 12, aftertaste: 11, acidity: 7, bitterness: 6, sweetness: 8, mouthfeel: 13)
+      assert_enqueued_with(job: AirtableUploadRecordJob, args: [@shot], queue: "default")
+
+      stub = stub_request(:patch, "https://api.airtable.com/v0/#{@identity.airtable_info.base_id}/#{@identity.airtable_info.tables["Shots"]["id"]}/#{@shot.airtable_id}")
+        .with(headers: {"Authorization" => "Bearer #{@identity.token}", "Content-Type" => "application/json"}) do
+          body = JSON.parse(it.body)
+          assert_equal 10, body["fields"]["Fragrance"]
+          assert_equal 9, body["fields"]["Aroma"]
+          assert_equal 12, body["fields"]["Flavor"]
+          assert_equal 11, body["fields"]["Aftertaste"]
+          assert_equal 7, body["fields"]["Acidity"]
+          assert_equal 6, body["fields"]["Bitterness"]
+          assert_equal 8, body["fields"]["Sweetness"]
+          assert_equal 13, body["fields"]["Mouthfeel"]
+        end.to_return(status: 200, body: {id: @shot.airtable_id}.to_json)
+
+      perform_enqueued_jobs
+      assert_requested(stub)
+    end
+
     test "it uploads a new record to airtable" do
       shot_id = "e5b3a587-809a-444a-bb27-e2f5bdbeacbe"
       sync = Airtable::Shots.new(@user)
-      shot = @user.shots.create!(id: shot_id, espresso_enjoyment: 80, start_time: "2023-05-05T15:50:44.093Z", information: ShotInformation.new(timeframe: ["1"], data: {weight: []}), sha: "123")
+      shot = @user.shots.create!(id: shot_id, public: false, espresso_enjoyment: 80, start_time: "2023-05-05T15:50:44.093Z", information: ShotInformation.new(timeframe: ["1"], data: {weight: []}), sha: "123")
       assert_enqueued_with(job: AirtableUploadRecordJob, args: [shot], queue: "default")
 
       stub = stub_request(:patch, "https://api.airtable.com/v0/#{@identity.airtable_info.base_id}/#{@identity.airtable_info.tables["Shots"]["id"]}")
@@ -204,8 +271,8 @@ module Airtable
       assert_enqueued_with(job: AirtableUploadRecordJob, args: [@shot], queue: "default")
 
       stub = stub_request(:patch, "https://api.airtable.com/v0/#{@identity.airtable_info.base_id}/#{@identity.airtable_info.tables["Shots"]["id"]}/#{@shot.airtable_id}")
-        .with(headers: {"Authorization" => "Bearer #{@identity.token}", "Content-Type" => "application/json"}) do |request|
-          body = JSON.parse(request.body)
+        .with(headers: {"Authorization" => "Bearer #{@identity.token}", "Content-Type" => "application/json"}) do
+          body = JSON.parse(it.body)
           assert_equal %w[best tags], body["fields"]["Tags"]
           assert body["typecast"]
         end.to_return(status: 200, body: {id: @shot.airtable_id}.to_json)

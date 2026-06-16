@@ -21,7 +21,7 @@ module Parsers
       assert_equal "08.12.2022", shot.roast_date
       assert_equal "Kinu M47", shot.grinder_model
       assert_equal "4", shot.grinder_setting
-      assert_equal "0", shot.drink_weight
+      assert_equal "1200", shot.drink_weight
       assert_equal "Parsers::Beanconqueror", shot.information.brewdata["parser"]
     end
 
@@ -36,7 +36,7 @@ module Parsers
       assert_equal "08.12.2022", shot.roast_date
       assert_equal "Kinu M47", shot.grinder_model
       assert_equal "4", shot.grinder_setting
-      assert_equal "0", shot.drink_weight
+      assert_equal "1200", shot.drink_weight
       assert_in_delta(35.047, shot.duration)
       assert_equal "3", shot.drink_tds
       assert_equal "4", shot.drink_ey
@@ -176,7 +176,7 @@ module Parsers
       assert_equal "08.12.2022", shot.roast_date
       assert_equal "Kinu M47", shot.grinder_model
       assert_equal "4", shot.grinder_setting
-      assert_equal "0", shot.drink_weight
+      assert_equal "1200", shot.drink_weight
       assert_in_delta(174.244, shot.duration)
       assert_equal %w[pressureFlow realtimeFlow waterFlow weight], shot.information.brewdata["brewFlow"].keys.sort
       assert_equal 1748, shot.information.brewdata["brewFlow"]["realtimeFlow"].size
@@ -215,6 +215,21 @@ module Parsers
       assert_equal %w[pressureFlow realtimeFlow temperatureFlow waterFlow weight], shot.information.brewdata["brewFlow"].keys.sort
       assert_equal 16, shot.information.brewdata["brewFlow"]["temperatureFlow"].size
       assert_equal 10, shot.information.extra.keys.size
+    end
+
+    test "extracts water dispensed from Beanconqueror" do
+      shot = new_shot("test/files/beanconqueror_water_dispensed.json")
+      assert shot.valid?
+      assert_equal "Sanremo", shot.profile_title
+      assert_equal "Schvarz Kaffee", shot.bean_brand
+      assert_equal "Kolumbien Sugarcane", shot.bean_type
+      assert_equal "20", shot.bean_weight
+      assert_equal "40.2", shot.drink_weight
+      assert_in_delta(24.209, shot.duration)
+      assert_equal %w[brewbyweight customAxes customMetrics pressureFlow realtimeFlow realtimeFlowSecond temperatureFlow waterDispensed waterDispensedFlowSecond waterFlow weight weightSecond], shot.information.brewdata["brewFlow"].keys.sort
+      assert_equal 241, shot.information.brewdata["brewFlow"]["waterDispensed"].size
+      assert_equal 241, shot.information.brewdata["brewFlow"]["waterDispensedFlowSecond"].size
+      assert_equal "Parsers::Beanconqueror", shot.information.brewdata["parser"]
     end
   end
 end

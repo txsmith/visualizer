@@ -1,3 +1,5 @@
+inherit_from: .rubocop_todo.yml
+
 inherit_gem:
   rubocop-rails-omakase: rubocop.yml
 
@@ -5,9 +7,10 @@ plugins:
   - rubocop-performance
   - rubocop-rails
 AllCops:
+  StringLiteralsFrozenByDefault: true
   NewCops: enable
   DisabledByDefault: false
-  TargetRubyVersion: 3.4
+  TargetRubyVersion: 4.0
   Exclude:
     - db/schema.rb
     - db/migrate/*
@@ -83,6 +86,8 @@ Layout/ClassStructure:
 Layout/EmptyLineAfterGuardClause:
   Enabled: true
 Layout/EmptyLines:
+  Enabled: true
+Layout/ExtraSpacing:
   Enabled: true
 Layout/FirstHashElementIndentation:
   EnforcedStyle: consistent

@@ -1,10 +1,12 @@
 class ShotChart
   class ParsedShot
+    class NoData < StandardError; end
+
     prepend MemoWise
     include Bsearch
 
-    DATA_LABELS_MAP = {"weight" => "espresso_weight", "waterFlow" => "espresso_flow", "realtimeFlow" => "espresso_flow_weight", "pressureFlow" => "espresso_pressure", "temperatureFlow" => "espresso_temperature_mix"}.freeze
-    DATA_VALUES_MAP = {"weight" => "actual_weight", "waterFlow" => "value", "realtimeFlow" => "flow_value", "pressureFlow" => "actual_pressure", "temperatureFlow" => "actual_temperature"}.freeze
+    DATA_LABELS_MAP = {"weight" => "espresso_weight", "waterFlow" => "espresso_flow", "waterDispensedFlowSecond" => "espresso_flow", "realtimeFlow" => "espresso_flow_weight", "pressureFlow" => "espresso_pressure", "temperatureFlow" => "espresso_temperature_mix", "waterDispensed" => "espresso_water_dispensed"}.freeze
+    DATA_VALUES_MAP = {"weight" => "actual_weight", "waterFlow" => "value", "waterDispensedFlowSecond" => "actual", "realtimeFlow" => "flow_value", "pressureFlow" => "actual_pressure", "temperatureFlow" => "actual_temperature", "waterDispensed" => "actual"}.freeze
 
     attr_reader :shot, :timeframe, :data
 
@@ -17,6 +19,7 @@ class ShotChart
       else
         parse_brew_flow
       end
+      raise NoData unless has_data?
     end
 
     memo_wise def fahrenheit?
@@ -28,6 +31,10 @@ class ShotChart
       has_state_data ? stages_from_state_change : detect_stages_from_data
     end
 
+    def has_data?
+      data.values.any? { |series| series.respond_to?(:size) && series.size > 1 }
+    end
+
     private
 
     def parse_brew_flow
@@ -36,6 +43,7 @@ class ShotChart
 
       @timeframe = []
       relevant_keys = brew_flow.keys.select { |k| brew_flow[k].size > 1 } & DATA_LABELS_MAP.keys
+      relevant_keys -= ["waterFlow"] if relevant_keys.include?("waterDispensedFlowSecond")
       @data = DATA_LABELS_MAP.values_at(*relevant_keys).index_with { [] }
       brew_flow.each_value do |data|
         data.each do |d|
@@ -49,6 +57,7 @@ class ShotChart
         relevant_keys.each do |key|
           closest = closest_bsearch(brew_flow[key], d["unix_timestamp"], key: "unix_timestamp")
           value = closest[DATA_VALUES_MAP[key]]
+          value /= 10.0 if key == "waterDispensed" && value
           @data[DATA_LABELS_MAP[key]] << (value&.positive? ? value : 0)
         end
       end
@@ -56,14 +65,22 @@ class ShotChart
 
     def stages_from_state_change
       indices = []
-      current = data["espresso_state_change"].find { |s| !s.to_i.zero? }
-      data["espresso_state_change"].each.with_index do |s, i|
-        next if s.to_i.zero? || s == current
+      state_data = data["espresso_state_change"]
+      current = state_data.find { |s| state_present?(s) }
+      state_data.each.with_index do |s, i|
+        next unless state_present?(s)
+        next if s == current
 
         indices << i
         current = s
       end
       indices
+    end
+
+    def state_present?(state)
+      return false if state.blank?
+
+      state.is_a?(String) || !state.to_i.zero?
     end
 
     def detect_stages_from_data
@@ -87,6 +104,7 @@ class ShotChart
         end
 
         break if indices.size <= shot.duration / 2
+        break if diff_threshold >= 500
 
         diff_threshold += 0.05
       end

@@ -20,7 +20,7 @@ Rails.application.configure do
 
   # Show full error reports.
   config.consider_all_requests_local = true
-  config.cache_store = :null_store
+  config.cache_store = :memory_store
 
   # Render exception templates for rescuable exceptions and raise for other exceptions.
   config.action_dispatch.show_exceptions = :rescuable
@@ -54,4 +54,3 @@ Rails.application.configure do
   config.time_zone = "UTC"
   config.webauthn_origin = "http://visualizer.localhost:3000"
 end
-Rails.application.routes.default_url_options = {host: "visualizer.test", protocol: "https"}

@@ -1,6 +1,6 @@
-solid_queue_cleanup_job:
+clear_solid_queue_finished_jobs:
   queue: low
-  command: "SolidQueue::Job.clear_finished_in_batches"
+  command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
   schedule: "@daily"
 shared_shot_cleanup_job:
   class: SharedShotCleanupJob
@@ -10,6 +10,9 @@ fill_autocomplete_values_job:
   schedule: "@hourly"
 duplicate_lemon_squeezy_subscriptions_job:
   class: DuplicateLemonSqueezySubscriptionsJob
+  schedule: "@daily"
+duplicate_creem_subscriptions_job:
+  class: DuplicateCreemSubscriptionsJob
   schedule: "@daily"
 tag_cleaner_job:
   class: TagCleanerJob
@@ -23,3 +26,12 @@ loffee_labs_importer_job:
 premium_feedback_job:
   class: PremiumFeedbackJob
   schedule: "@daily"
+disable_expired_premium_coffee_management_job:
+  class: DisableExpiredPremiumCoffeeManagementJob
+  schedule: "@daily"
+populate_dropdown_values_job:
+  class: PopulateDropdownValuesJob
+  schedule: "@daily"
+trending_profiles_job:
+  class: TrendingProfilesJob
+  schedule: "@hourly"

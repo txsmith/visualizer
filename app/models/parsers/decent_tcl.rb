@@ -22,10 +22,12 @@ module Parsers
       @profile_title = @profile_fields["profile_title"]
     rescue Tickly::Parser::Error => e
       invalid_machine = file.split("machine {")
-      raise e unless invalid_machine.size > 1
-
-      @file = invalid_machine.first
-      retry
+      if invalid_machine.size > 1
+        @file = invalid_machine.first
+        retry
+      else
+        raise e
+      end
     end
 
     private

@@ -2,8 +2,8 @@ class ChartSettings
   DEFAULT = {
     "espresso_pressure" => {"title" => "Pressure", "color" => "#05c793", "suffix" => " bar", "type" => "spline"},
     "espresso_pressure_goal" => {"title" => "Pressure Goal", "color" => "#03634a", "suffix" => " bar", "dashed" => true, "type" => "spline"},
-    "espresso_water_dispensed" => {"title" => "Water Dispensed", "color" => "#1fb7ea", "suffix" => " ml", "hidden" => true, "type" => "spline"},
-    "espresso_weight" => {"title" => "Weight", "color" => "#8f6400", "suffix" => " g", "hidden" => true, "type" => "spline"},
+    "espresso_water_dispensed" => {"title" => "Water Dispensed", "color" => "#1fb7ea", "suffix" => " ml", "hidden" => true, "type" => "spline", "secondary_axis" => false},
+    "espresso_weight" => {"title" => "Weight", "color" => "#8f6400", "suffix" => " g", "hidden" => true, "type" => "spline", "secondary_axis" => false},
     "espresso_flow" => {"title" => "Flow", "color" => "#1fb7ea", "suffix" => " ml/s", "type" => "spline"},
     "espresso_flow_weight" => {"title" => "Weight Flow", "color" => "#8f6400", "suffix" => " g/s", "type" => "spline"},
     "espresso_flow_goal" => {"title" => "Flow Goal", "color" => "#09485d", "suffix" => " ml/s", "dashed" => true, "type" => "spline"},
@@ -25,12 +25,10 @@ class ChartSettings
   def for_label(label)
     return for_comparison(label) if label.end_with?(ShotChartCompare::SUFFIX)
 
-    setting = DEFAULT[label]
+    setting = DEFAULT[label]&.dup
     return if setting.blank?
 
-    user_setting = user_settings[label]
-    return setting if user_setting.blank?
-
+    user_setting = user_settings[label].presence || {}
     user_setting["suffix"] = " °F" if label.include?("temperature") && wants_fahrenheit
     setting.merge(user_setting)
   end
@@ -42,6 +40,6 @@ class ChartSettings
     og_setting = for_label(og_label)
     return unless og_setting
 
-    og_setting.merge("comparison" => true, "title" => "#{og_setting["title"]} Comparison")
+    og_setting.merge("comparison" => true)
   end
 end

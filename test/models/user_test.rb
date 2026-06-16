@@ -29,11 +29,11 @@ class UserTest < ActiveSupport::TestCase
     token = user.unsubscribe_token_for("test")
 
     assert user.reload.notify?("test")
-    assert_empty user.reload.unsubscribed_from
+    assert_equal %w[shot_uploaded], user.reload.unsubscribed_from
 
     User.unsubscribe_by_token!(token)
     assert_not user.reload.notify?("test")
-    assert_equal %w[test], user.reload.unsubscribed_from
+    assert_equal %w[shot_uploaded test], user.reload.unsubscribed_from
 
     user = create(:user)
     user.update(unsubscribed_from: %w[something test])
@@ -42,5 +42,30 @@ class UserTest < ActiveSupport::TestCase
     assert_equal %w[something test], user.reload.unsubscribed_from
 
     User.unsubscribe_by_token!("shouldn't raise")
+  end
+
+  test "shot uploaded email notifications are opt in" do
+    user = create(:user)
+
+    assert_not user.notify?(:shot_uploaded)
+    assert_includes user.unsubscribed_from, "shot_uploaded"
+
+    user.update!(unsubscribed_from: [])
+
+    assert user.notify?(:shot_uploaded)
+  end
+
+  test "coffee_bag_metadata_fields defaults to empty list" do
+    user = create(:user)
+
+    assert_equal [], user.coffee_bag_metadata_fields
+  end
+
+  test "unified_chart follows the user preference" do
+    user = build(:user)
+    assert_not user.unified_chart?
+
+    user = build(:user, unified_chart: true)
+    assert user.unified_chart?
   end
 end

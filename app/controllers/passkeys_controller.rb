@@ -3,7 +3,7 @@ class PasskeysController < ApplicationController
     options = WebAuthn::Credential.options_for_create(
       user: {id: Current.user.webauthn_id, name: Current.user.email, display_name: Current.user.display_name},
       exclude: Current.user.webauthn_credentials.pluck(:external_id),
-      authenticator_selection: {user_verification: "required"}
+      authenticator_selection: {resident_key: "required", user_verification: "required"}
     )
     session[:webauthn_challenge] = options.challenge
     render json: options
@@ -15,17 +15,17 @@ class PasskeysController < ApplicationController
     Current.session.user.webauthn_credentials.create!(external_id: credential.id, public_key: credential.public_key, nickname: params[:nickname].presence)
 
     head :created
-  rescue WebAuthn::Error => e
-    render json: {error: e.message}, status: :unprocessable_entity
+  rescue WebAuthn::Error, ActiveRecord::RecordInvalid => e
+    render json: {error: e.message}, status: :unprocessable_content
   end
 
   def destroy
     credential = Current.user.webauthn_credentials.find(params[:id])
     credential.destroy!
 
-    respond_to do |format|
-      format.turbo_stream { render turbo_stream: turbo_stream.remove(credential) }
-      format.html { redirect_to edit_profile_path }
+    respond_to do
+      it.turbo_stream { render turbo_stream: turbo_stream.remove(credential) }
+      it.html { redirect_to edit_profile_path }
     end
   end
 

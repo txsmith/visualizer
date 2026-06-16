@@ -37,12 +37,6 @@
   --color-oxford-blue-950: oklch(27.26% 0.023 235.76);
 }
 
-@layer base {
-  .prose pre {
-    background-color: #2e3440;
-  }
-}
-
 .standard-link {
   @apply underline hover:no-underline;
 }
@@ -64,15 +58,28 @@
 }
 
 .button-terracotta {
-  @apply inline-flex justify-center font-medium text-white border border-transparent rounded-md cursor-pointer sm:text-sm bg-terracotta-600 hover:bg-terracotta-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-terracotta-500 dark:ring-offset-black;
+  @apply inline-flex justify-center font-medium sm:text-sm text-white border border-transparent rounded-md cursor-pointer bg-terracotta-600 hover:bg-terracotta-700 active:bg-terracotta-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-terracotta-500 dark:ring-offset-black;
 }
 
 .button-oxford-blue {
-  @apply inline-flex justify-center font-medium text-white border border-transparent rounded-md cursor-pointer sm:text-sm bg-oxford-blue-600 hover:bg-oxford-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-oxford-blue-500 dark:ring-offset-black;
+  @apply inline-flex justify-center font-medium sm:text-sm text-white border border-transparent rounded-md cursor-pointer bg-oxford-blue-600 hover:bg-oxford-blue-700 active:bg-oxford-blue-700 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-oxford-blue-500 dark:ring-offset-black;
 }
 
 .button-white {
-  @apply items-center px-3 py-2 text-sm font-semibold bg-white rounded-md shadow-sm cursor-pointer text-neutral-700 ring-1 dark:ring-0 ring-inset ring-neutral-300 hover:bg-neutral-50 dark:text-white dark:bg-white/10 dark:hover:bg-white/20 active:shadow-none active:bg-neutral-100 dark:active:bg-white/30;
+  @apply inline-flex justify-center font-medium sm:text-sm bg-white rounded-md shadow-sm cursor-pointer text-neutral-700 ring-1 dark:ring-1 ring-inset ring-neutral-300 dark:ring-white/10 hover:bg-neutral-50 dark:text-white dark:bg-white/10 dark:hover:bg-white/20 dark:shadow-sm dark:shadow-black/40 active:shadow-none active:bg-neutral-100 dark:active:bg-white/30 focus-visible:outline-hidden;
+}
+
+.pull-refresh-indicator {
+  --pull-progress: 0;
+  background-image: linear-gradient(to right, var(--color-terracotta-200), var(--color-terracotta-400));
+  background-position: left top;
+  background-repeat: no-repeat;
+  background-size: calc(var(--pull-progress) * 100%) 100%;
+  @apply relative overflow-hidden rounded-full border border-neutral-200 bg-white px-4 py-2 text-center text-sm font-medium text-neutral-700 shadow-sm transition-opacity duration-150 dark:border-none dark:bg-neutral-900 dark:text-neutral-200;
+}
+
+.dark .pull-refresh-indicator {
+  background-image: linear-gradient(to right, var(--color-terracotta-900), var(--color-terracotta-500));
 }
 
 .shot-range {
@@ -223,7 +230,7 @@ a:hover .logo-steam path {
 }
 
 .tagify__tag > div {
-  @apply flex-grow whitespace-nowrap;
+  @apply grow whitespace-nowrap;
 }
 
 .tagify__tag__removeBtn {
@@ -236,7 +243,7 @@ a:hover .logo-steam path {
 }
 
 .tagify__input {
-  @apply flex-grow inline-block min-w-[100px] relative whitespace-pre-wrap align-baseline m-0.5 px-1 py-1 focus:outline-none focus:ring-0;
+  @apply grow inline-block min-w-[100px] relative whitespace-pre-wrap align-baseline m-0.5 px-1 py-1 focus:outline-none focus:ring-0;
 }
 
 .tagify__input::before {
@@ -253,7 +260,7 @@ a:hover .logo-steam path {
 }
 
 .tagify__dropdown {
-  @apply absolute z-[9999] -translate-y-px;
+  @apply absolute z-9999 -translate-y-px;
 }
 
 .tagify__dropdown[placement="top"] {

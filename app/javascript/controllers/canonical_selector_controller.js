@@ -1,7 +1,8 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["autocomplete", "id", "roaster", "coffeeBag", "roasterWebsite", "verified", "input"]
+  static targets = ["autocomplete", "id", "roaster", "roasterId", "coffeeBag", "roasterWebsite", "verified", "input"]
+  static values = { coffeeBagAutocompleteUrl: String, roasterCanonicalMap: Object }
 
   connect() {
     if (!this.hasIdTarget) return
@@ -26,12 +27,41 @@ export default class extends Controller {
 
     const raw_payload = selected.querySelector("[data-coffee-bag-payload-value]")?.dataset?.coffeeBagPayloadValue
     if (raw_payload) {
-      const formEl = this.element.closest('form[data-controller~="coffee-bag-scraper"]')
-      const scraper = formEl && this.application.getControllerForElementAndIdentifier(formEl, "coffee-bag-scraper")
-      scraper?.populateFields(JSON.parse(raw_payload))
+      this.element.dispatchEvent(new CustomEvent("coffee-bag:apply", { detail: { data: JSON.parse(raw_payload) } }))
     }
 
     this.toggleInputs()
+  }
+
+  roasterChanged() {
+    if (!this.hasAutocompleteTarget || !this.hasCoffeeBagAutocompleteUrlValue) return
+
+    const url = new URL(this.coffeeBagAutocompleteUrlValue, window.location.origin)
+    const canonicalRoasterId = this.selectedCanonicalRoasterId()
+
+    if (canonicalRoasterId) {
+      url.searchParams.set("canonical_roaster_id", canonicalRoasterId)
+    } else {
+      url.searchParams.delete("canonical_roaster_id")
+    }
+
+    const autocomplete = this.application.getControllerForElementAndIdentifier(this.autocompleteTarget, "autocomplete")
+    if (autocomplete) {
+      autocomplete.urlValue = `${url.pathname}${url.search}`
+    } else {
+      this.autocompleteTarget.dataset.autocompleteUrlValue = `${url.pathname}${url.search}`
+    }
+
+    this.idTarget.value = ""
+    this.idTarget.dispatchEvent(new Event("change"))
+    this.inputTarget.value = ""
+    this.toggleInputs()
+  }
+
+  selectedCanonicalRoasterId() {
+    if (!this.hasRoasterIdTarget || !this.roasterIdTarget.value || !this.hasRoasterCanonicalMapValue) return null
+
+    return this.roasterCanonicalMapValue[this.roasterIdTarget.value] || null
   }
 
   toggleInputs() {

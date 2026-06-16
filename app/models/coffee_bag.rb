@@ -2,6 +2,8 @@ class CoffeeBag < ApplicationRecord
   include Airtablable
   include Squishable
 
+  performs :refresh_shot_values
+
   DISPLAY_ATTRIBUTES = %w[roast_level country region farm farmer variety elevation processing harvest_time quality_score tasting_notes place_of_purchase].freeze
 
   belongs_to :roaster, touch: true
@@ -15,16 +17,26 @@ class CoffeeBag < ApplicationRecord
   end
 
   validates :name, presence: true, uniqueness: {scope: %i[roaster_id roast_date], case_sensitive: false} # rubocop:disable Rails/UniqueValidationWithoutIndex
+  validate :defrosted_date_after_frozen_date
 
-  after_save_commit :update_shots, if: -> { saved_changes.keys.intersect?(%w[name roast_date roast_level roaster_id]) }
+  after_save_commit :refresh_shot_values_later, if: -> { saved_changes.keys.intersect?(%w[name roast_date roast_level roaster_id]) }
 
   scope :filter_by_name, ->(name) { where("LOWER(coffee_bags.name) = ?", name.downcase.squish) }
   scope :active, -> { where(archived_at: nil) }
-  scope :active_first, -> { order(Arel.sql("archived_at IS NOT NULL")) }
+  scope :archived, -> { where.not(archived_at: nil) }
   scope :by_roast_date, -> { order("roast_date DESC NULLS LAST") }
-  scope :for_user, ->(user) { joins(:roaster).where(roasters: {user:}) }
+  scope :by_name, -> { order(:name) }
+  scope :by_brewability, -> {
+    order(Arel.sql(<<~SQL.squish))
+      CASE
+      WHEN archived_at IS NOT NULL THEN 2
+      WHEN frozen_date IS NOT NULL AND defrosted_date IS NULL THEN 1
+      ELSE 0
+      END
+    SQL
+  }
 
-  squishes :country, :elevation, :farm, :farmer, :harvest_time, :name, :processing, :quality_score, :region, :roast_level, :url, :variety, :tasting_notes
+  squishes(*%i[country elevation farm farmer harvest_time name processing quality_score region roast_level url variety tasting_notes place_of_purchase])
 
   def self.for_roaster_by_name_and_date(roaster, name, roast_date, **create_attrs)
     where(roaster:).filter_by_name(name).where(roast_date:).first || create(name:, roaster:, roast_date:, **create_attrs)
@@ -34,13 +46,27 @@ class CoffeeBag < ApplicationRecord
     roast_date.blank? ? name : "#{name} (#{roast_date.to_fs(:long)})"
   end
 
+  def metadata
+    super.presence || {}
+  end
+
+  def full_display_name
+    details = []
+    details << roast_date.to_fs(:long) if roast_date.present?
+    details << "Archived" if archived?
+    suffix = details.any? ? " (#{details.join(", ")})" : ""
+    "#{roaster.name}: #{name}#{suffix}"
+  end
+
   def duplicate(roast_date)
     dup.tap { |d| d.roast_date = roast_date }
   end
 
   def to_api_json
-    attributes.slice(*%w[id name roast_date roast_level country region farm farmer variety elevation processing harvest_time quality_score tasting_notes url archived_at]).tap do |json|
+    attribute_names = CoffeeBag::DISPLAY_ATTRIBUTES + %w[id roaster_id canonical_coffee_bag_id name roast_date frozen_date defrosted_date url archived_at notes]
+    attributes.slice(*attribute_names).tap do |json|
       json["image_url"] = image&.url if image.attached?
+      json["metadata"] = metadata.presence
     end
   end
 
@@ -48,10 +74,34 @@ class CoffeeBag < ApplicationRecord
     archived_at.present?
   end
 
+  def frozen?
+    frozen_date.present? && defrosted_date.blank?
+  end
+
+  def days_in_freezer(up_to:)
+    return if frozen_date.blank? || up_to.blank?
+
+    end_date = [defrosted_date || up_to.to_date, up_to.to_date].min
+    return if frozen_date > end_date
+
+    (end_date - frozen_date).to_i
+  end
+
+  def refresh_shot_values
+    shots.find_each do
+      it.refresh_coffee_bag_fields
+      it.save!
+    end
+  end
+
   private
 
-  def update_shots
-    RefreshCoffeeBagFieldsOnShotsJob.perform_later(self)
+  def defrosted_date_after_frozen_date
+    if frozen_date.blank? && defrosted_date.present?
+      errors.add(:defrosted_date, "requires a frozen date")
+    elsif frozen_date.present? && defrosted_date.present? && defrosted_date < frozen_date
+      errors.add(:defrosted_date, "must be after frozen date")
+    end
   end
 end
 
@@ -63,11 +113,15 @@ end
 #  id                      :uuid             not null, primary key
 #  archived_at             :datetime
 #  country                 :string
+#  defrosted_date          :date
 #  elevation               :string
 #  farm                    :string
 #  farmer                  :string
+#  frozen_date             :date
 #  harvest_time            :string
-#  name                    :string
+#  metadata                :jsonb
+#  name                    :string           not null
+#  notes                   :text
 #  place_of_purchase       :string
 #  processing              :string
 #  quality_score           :string

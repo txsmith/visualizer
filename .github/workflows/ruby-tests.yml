@@ -1,16 +1,21 @@
 name: Ruby Tests
 on: workflow_call
+permissions:
+  contents: read
 jobs:
   checks:
     name: Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.4.7
+          ruby-version: 4.0.5
           bundler-cache: true
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libvips
 
       - name: Scan for common Rails security vulnerabilities using static analysis
         run: bin/brakeman --no-pager
@@ -33,7 +38,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:14
+        image: postgres:18
         ports:
           - 5432:5432
         env:
@@ -47,16 +52,16 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: 3.4.7
+          ruby-version: 4.0.5
           bundler-cache: true
 
-      - name: Install postgres headers
-        run: sudo apt-get install libpq-dev
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips
 
       - name: Setup database
         run: bin/rails db:test:prepare

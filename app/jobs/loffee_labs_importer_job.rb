@@ -1,7 +1,12 @@
 class LoffeeLabsImporterJob < ApplicationJob
+  retry_on TypeError, wait: :polynomially_longer
+
   queue_as :low
 
-  ROASTER_CSV_MAPPING = {name: "roaster", website: "link", country: "country", address: "locality"}.freeze
+  BASE_URL = "https://beta.loffeelabs.com/api/v2".freeze
+  ROASTERS_URL = "#{BASE_URL}/roasters".freeze
+  BEANS_BULK_URL = "#{BASE_URL}/beans/bulk".freeze
+  ROASTER_JSON_MAPPING = {name: "roaster", website: "link", country: "country", address: "locality"}.freeze
   COFFEE_BAG_JSON_MAPPING = {
     name: "roast-name",
     url: "link",
@@ -16,6 +21,8 @@ class LoffeeLabsImporterJob < ApplicationJob
     tasting_notes: "tasting"
   }.freeze
 
+  EXCLUDED_URLS_REGEX = Regexp.union(%w[airworkscoffee.com thebeanarchives.com mystery.coffee])
+
   def perform(cut_off: 3.months.ago)
     @cut_off = cut_off
     @roasters = {}
@@ -26,29 +33,35 @@ class LoffeeLabsImporterJob < ApplicationJob
   private
 
   def import_roasters
-    url = Rails.application.credentials.dig(:loffee_labs, :roasters_url)
-    CSV.parse(SimpleDownloader.new(url).body, headers: true).each do |row|
+    JSON.parse(SimpleDownloader.new(ROASTERS_URL).body).fetch("data", []).each do |row|
       name = row["roaster"]&.squish
       next if name.blank?
 
       @roasters[name] = CanonicalRoaster.find_or_initialize_by(loffee_labs_id: name)
-      @roasters[name].update(ROASTER_CSV_MAPPING.to_h { |attr, col| [attr, row[col]&.squish] })
+      @roasters[name].update(ROASTER_JSON_MAPPING.to_h { |attr, key| [attr, row[key]&.squish] })
     end
   end
 
   def import_beans
-    url = "https://www.loffeelabs.com/wp-json/beanbase/v1/beans?api_key=#{Rails.application.credentials.dig(:loffee_labs, :api_key)}"
-    JSON.parse(SimpleDownloader.new(url).body)["data"].each do |bean|
-      next if Date.parse(bean["date"]) < @cut_off
+    json = JSON.parse(SimpleDownloader.new(BEANS_BULK_URL, headers: {"Authorization" => "Bearer #{Rails.application.credentials.dig(:loffee_labs, :api_key)}"}).body)
+    json["beans"].each { import_bean(it) } if json.key?("beans") && json["beans"].is_a?(Array)
+  end
 
-      roaster_name = bean["roaster"]&.squish
-      next if roaster_name.blank?
+  def import_bean(bean)
+    return if bean["link"]&.squish&.downcase&.match?(EXCLUDED_URLS_REGEX)
 
-      attributes = COFFEE_BAG_JSON_MAPPING.to_h { |attr, key| [attr, bean[key]&.squish] }
-      CanonicalCoffeeBag
-        .find_or_initialize_by(loffee_labs_id: bean["id"])
-        .update(canonical_roaster: roaster_by_name(roaster_name), **attributes)
-    end
+    parsed_date = Date.iso8601(bean["date"])
+    return if parsed_date < @cut_off
+
+    roaster_name = bean["roaster"]&.squish
+    return if roaster_name.blank?
+
+    attributes = COFFEE_BAG_JSON_MAPPING.to_h { |attr, key| [attr, bean[key]&.squish] }
+    CanonicalCoffeeBag
+      .find_or_initialize_by(loffee_labs_id: bean["id"])
+      .update(canonical_roaster: roaster_by_name(roaster_name), **attributes)
+  rescue Date::Error => e
+    Appsignal.report_error(e) { it.set_tags(loffee_labs_id: bean["id"]) }
   end
 
   def roaster_by_name(name)

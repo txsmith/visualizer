@@ -1,7 +1,14 @@
 FactoryBot.define do
   factory :user do
-    sequence(:email) { "person#{_1}@example.com" }
+    sequence(:email) { "person#{it}@example.com" }
     password { "password" }
+    hide_shot_times { false }
+    admin { false }
+    beta { false }
+    supporter { false }
+    developer { false }
+    coffee_management_enabled { false }
+    unified_chart { false }
 
     trait :admin do
       admin { true }
@@ -21,13 +28,18 @@ FactoryBot.define do
       coffee_management_enabled { true }
     end
 
-    trait :with_metadata do
-      metadata_fields { ["Portafilter basket", "Bean variety"] }
+    trait :with_shot_metadata do
+      shot_metadata_fields { ["Portafilter basket", "Bean variety"] }
+    end
+
+    trait :with_coffee_bag_metadata do
+      coffee_bag_metadata_fields { ["Bean density", "Bean color"] }
     end
 
     trait :with_airtable do
       premium
-      with_metadata
+      with_shot_metadata
+      with_coffee_bag_metadata
       identities { [association(:identity, :airtable)] }
     end
   end

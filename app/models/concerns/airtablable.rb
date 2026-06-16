@@ -17,7 +17,7 @@ module Airtablable
   private
 
   def sync_to_airtable
-    return if skip_airtable_sync || !user&.has_airtable?
+    return if skip_airtable_sync || !user.has_airtable?
 
     AirtableUploadRecordJob.perform_later(self)
   end

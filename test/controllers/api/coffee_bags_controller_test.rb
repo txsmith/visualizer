@@ -1,0 +1,101 @@
+require "test_helper"
+
+module Api
+  class CoffeeBagsControllerTest < ActionDispatch::IntegrationTest
+    attr_reader :user, :premium_user
+
+    setup do
+      host! "example.com"
+      @user = FactoryBot.create(:user)
+      @premium_user = FactoryBot.create(:user, :premium)
+    end
+
+    test "create creates coffee bag for premium user" do
+      roaster = FactoryBot.create(:roaster, user: premium_user)
+
+      post api_coffee_bags_url, headers: auth_headers(premium_user), params: {coffee_bag: {name: "Kiambu", roast_date: "2025-01-01", roaster_id: roaster.id}}, as: :json
+
+      assert_response :created
+      json_response = response.parsed_body
+      assert_equal "Kiambu", json_response["name"]
+      assert_equal roaster.id, CoffeeBag.find(json_response["id"]).roaster_id
+    end
+
+    test "create saves custom metadata fields" do
+      premium_user.update!(coffee_bag_metadata_fields: ["Bean density", "Bean color"])
+      roaster = FactoryBot.create(:roaster, user: premium_user)
+
+      post api_coffee_bags_url,
+        headers: auth_headers(premium_user),
+        params: {coffee_bag: {name: "Kiambu", roaster_id: roaster.id, metadata: {"Bean density" => "High", "Bean color" => "Brown", "Ignored" => "value"}}},
+        as: :json
+
+      assert_response :created
+      json_response = response.parsed_body
+      assert_equal({"Bean density" => "High", "Bean color" => "Brown"}, json_response["metadata"])
+      assert_equal({"Bean density" => "High", "Bean color" => "Brown"}, CoffeeBag.find(json_response["id"]).metadata)
+    end
+
+    test "create requires premium user" do
+      roaster = FactoryBot.create(:roaster, user:)
+
+      post api_coffee_bags_url, headers: auth_headers(user), params: {coffee_bag: {name: "Kiambu", roaster_id: roaster.id}}, as: :json
+
+      assert_response :forbidden
+      assert_equal "You must be a premium user to access this feature.", response.parsed_body["error"]
+    end
+
+    test "show includes roaster and canonical coffee bag ids" do
+      canonical_roaster = CanonicalRoaster.create!(name: "Luma")
+      canonical_coffee_bag = CanonicalCoffeeBag.create!(name: "Kiambu", canonical_roaster:)
+      roaster = FactoryBot.create(:roaster, user: premium_user)
+      coffee_bag = FactoryBot.create(:coffee_bag, roaster:, canonical_coffee_bag:)
+
+      get api_coffee_bag_url(coffee_bag), headers: auth_headers(premium_user), as: :json
+
+      assert_response :success
+      json_response = response.parsed_body
+      assert_equal coffee_bag.id, json_response["id"]
+      assert_equal roaster.id, json_response["roaster_id"]
+      assert_equal canonical_coffee_bag.id, json_response["canonical_coffee_bag_id"]
+    end
+
+    test "update updates coffee bag and allows moving to another owned roaster" do
+      roaster = FactoryBot.create(:roaster, user: premium_user)
+      other_roaster = FactoryBot.create(:roaster, user: premium_user, name: "Other")
+      coffee_bag = FactoryBot.create(:coffee_bag, roaster:, name: "Before")
+
+      patch api_coffee_bag_url(coffee_bag), headers: auth_headers(premium_user), params: {coffee_bag: {name: "After", roaster_id: other_roaster.id}}, as: :json
+
+      assert_response :success
+      coffee_bag.reload
+      assert_equal "After", coffee_bag.name
+      assert_equal other_roaster.id, coffee_bag.roaster_id
+    end
+
+    test "update returns not found for unowned coffee bag" do
+      coffee_bag = FactoryBot.create(:coffee_bag)
+
+      patch api_coffee_bag_url(coffee_bag), headers: auth_headers(premium_user), params: {coffee_bag: {name: "After"}}, as: :json
+
+      assert_response :not_found
+      assert_equal "Coffee bag not found", response.parsed_body["error"]
+    end
+
+    test "destroy deletes coffee bag" do
+      coffee_bag = FactoryBot.create(:coffee_bag, roaster: FactoryBot.create(:roaster, user: premium_user))
+
+      delete api_coffee_bag_url(coffee_bag), headers: auth_headers(premium_user), as: :json
+
+      assert_response :success
+      assert_not CoffeeBag.exists?(coffee_bag.id)
+      assert_equal true, response.parsed_body["success"]
+    end
+
+    private
+
+    def auth_headers(user)
+      {"HTTP_AUTHORIZATION" => ActionController::HttpAuthentication::Basic.encode_credentials(user.email, "password")}
+    end
+  end
+end

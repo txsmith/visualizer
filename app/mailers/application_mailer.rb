@@ -1,18 +1,18 @@
 class ApplicationMailer < ActionMailer::Base
-  before_action :check_subscription
+  before_action :check_notification
 
   default from: email_address_with_name("miha@visualizer.coffee", "Miha from Visualizer"), message_stream: -> { notification_exists? ? "broadcast" : "outbound" }
   layout "mailer"
   helper_method :notification_exists?
 
-  rescue_from(Exception) do |exception|
-    Appsignal.report_error(exception)
-    raise exception
+  rescue_from(Exception) do
+    Appsignal.report_error(it)
+    raise it
   end
 
   private
 
-  def check_subscription
+  def check_notification
     return unless params.try(:[], :user).is_a?(User)
     return unless notification_exists?
 

@@ -1,6 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 import { Turbo } from "@hotwired/turbo-rails"
 import { post } from "@rails/request.js"
+import { appsignal } from "controllers/application"
 
 export default class extends Controller {
   static targets = ["dropArea", "loader", "error", "form", "files"]
@@ -47,7 +48,8 @@ export default class extends Controller {
         const notificationsContainer = document.getElementById("notifications-container")
         notificationsContainer.insertAdjacentHTML("beforeend", this.errorTarget.innerHTML)
       }
-    } catch {
+    } catch (error) {
+      appsignal.sendError(error)
       const notificationsContainer = document.getElementById("notifications-container")
       notificationsContainer.insertAdjacentHTML("beforeend", this.errorTarget.innerHTML)
     } finally {

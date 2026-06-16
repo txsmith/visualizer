@@ -25,7 +25,7 @@ class ParsedShotTest < ActiveSupport::TestCase
     assert_equal "174.244", parsed_shot.timeframe.last
     assert_equal %w[espresso_flow espresso_flow_weight espresso_weight], parsed_shot.data.keys.sort
     assert_equal 1748, parsed_shot.data["espresso_weight"].size
-    assert(parsed_shot.data["espresso_flow_weight"].all? { |v| v >= 0 })
+    assert(parsed_shot.data["espresso_flow_weight"].all? { it >= 0 })
   end
 
   test "it parses long beanconqueror file with missing values correctly" do
@@ -39,7 +39,7 @@ class ParsedShotTest < ActiveSupport::TestCase
     assert_equal "147.542", parsed_shot.timeframe.last
     assert_equal %w[espresso_flow espresso_flow_weight espresso_weight], parsed_shot.data.keys.sort
     assert_equal 1366, parsed_shot.data["espresso_weight"].size
-    assert(parsed_shot.data["espresso_flow_weight"].all? { |v| v >= 0 })
+    assert(parsed_shot.data["espresso_flow_weight"].all? { it >= 0 })
   end
 
   test "it parses correct weight from beanconqueror" do
@@ -53,7 +53,7 @@ class ParsedShotTest < ActiveSupport::TestCase
     assert_equal "163.198", parsed_shot.timeframe.last
     assert_equal %w[espresso_flow espresso_flow_weight espresso_weight], parsed_shot.data.keys.sort
     assert_equal 1117, parsed_shot.data["espresso_weight"].size
-    assert(parsed_shot.data["espresso_flow_weight"].all? { |v| v >= 0 })
+    assert(parsed_shot.data["espresso_flow_weight"].all? { it >= 0 })
   end
 
   test "it parses beanconqueror temperature file correctly" do
@@ -67,6 +67,33 @@ class ParsedShotTest < ActiveSupport::TestCase
     assert_equal "17.198", parsed_shot.timeframe.last
     assert_equal %w[espresso_flow espresso_flow_weight espresso_temperature_mix espresso_weight], parsed_shot.data.keys.sort
     assert_equal 147, parsed_shot.data["espresso_weight"].size
+  end
+
+  test "it parses beanconqueror water dispensed file correctly" do
+    shot = Shot.from_file(build_stubbed(:user), File.read("test/files/beanconqueror_water_dispensed.json"))
+    assert_equal 1, shot.information.timeframe.count
+    assert shot.information.data.blank?
+
+    parsed_shot = ShotChart::ParsedShot.new(shot)
+    assert_equal 241, parsed_shot.timeframe.size
+    assert_equal "0.0", parsed_shot.timeframe.first
+    assert_equal "24.209", parsed_shot.timeframe.last
+    assert_equal %w[espresso_flow espresso_pressure espresso_temperature_mix espresso_water_dispensed], parsed_shot.data.keys.sort
+    assert_equal 241, parsed_shot.data["espresso_water_dispensed"].size
+    assert_in_delta(3.2, parsed_shot.data["espresso_flow"][42])
+    assert_in_delta(1.4, parsed_shot.data["espresso_water_dispensed"][42])
+  end
+
+  test "it prefers beanconqueror water dispensed flow over legacy water flow" do
+    payload = JSON.parse(File.read("test/files/beanconqueror_water_dispensed.json"))
+    payload["brewFlow"]["waterFlow"] = payload["brewFlow"]["waterDispensedFlowSecond"].map do |point|
+      {"timestamp" => point["timestamp"], "brew_time" => point["brew_time"], "value" => 0}
+    end
+
+    shot = Shot.from_file(build_stubbed(:user), JSON.generate(payload))
+    parsed_shot = ShotChart::ParsedShot.new(shot)
+
+    assert_in_delta(3.2, parsed_shot.data["espresso_flow"][42])
   end
 
   test "fahrenheit? should return true only if extra enable_fahrenheit is 1" do
@@ -89,5 +116,17 @@ class ParsedShotTest < ActiveSupport::TestCase
     shot = build_stubbed(:shot, :with_information)
     parsed_shot = ShotChart::ParsedShot.new(shot)
     assert_not parsed_shot.fahrenheit?
+  end
+
+  test "problematic stages parse without timing out" do
+    payload = JSON.parse(File.read("test/files/problematic_stages.json"))
+    information = build_stubbed(:shot_information, data: payload["data"], timeframe: payload["timeframe"], brewdata: payload["brewdata"], extra: payload["extra"], profile_fields: payload["profile_fields"])
+    shot = build_stubbed(:shot, duration: payload["duration"].to_f, information:)
+
+    assert_nothing_raised do
+      Timeout.timeout(5) do
+        ShotChart::ParsedShot.new(shot).stage_indices
+      end
+    end
   end
 end

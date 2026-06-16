@@ -1,7 +1,10 @@
 require "test_helper"
+require "action_policy/test_helper"
 
 module Api
   class ShotsControllerTest < ActionDispatch::IntegrationTest
+    include ActionPolicy::TestHelper
+
     attr_reader :user, :public_user, :premium_user
 
     setup do
@@ -17,6 +20,7 @@ module Api
       assert_response :success
 
       json_response = response.parsed_body
+      assert_equal user.id, json_response["user_id"]
       assert_equal 5, json_response["data"].length
       assert_includes json_response, "paging"
       assert_equal %w[count page limit pages], json_response["paging"].keys
@@ -32,6 +36,7 @@ module Api
       assert_response :success
 
       json_response = response.parsed_body
+      assert_equal user.id, json_response["user_id"]
       assert_equal 1, json_response["data"].length
 
       assert_equal 5, json_response["paging"]["count"]
@@ -72,7 +77,50 @@ module Api
       assert_response :success
 
       json_response = response.parsed_body
+      assert_nil json_response["user_id"]
       assert_equal 1, json_response["data"].length
+    end
+
+    test "index ignores updated_after for unauthenticated user" do
+      FactoryBot.create(:shot, user: public_user)
+
+      get api_shots_url(updated_after: 1_741_500_000), as: :json
+
+      assert_response :success
+
+      json_response = response.parsed_body
+      assert_nil json_response["user_id"]
+      assert_equal 1, json_response["data"].length
+    end
+
+    test "index filters authenticated user shots by updated_after" do
+      older_time = 30.minutes.ago.change(usec: 0)
+      newer_time = 20.minutes.ago.change(usec: 0)
+      other_time = 10.minutes.ago.change(usec: 0)
+      newer_shot = nil
+      travel_to older_time do
+        FactoryBot.create(:shot, user:, public: true)
+      end
+      travel_to newer_time do
+        newer_shot = FactoryBot.create(:shot, user:, public: true)
+      end
+      travel_to other_time do
+        FactoryBot.create(:shot, user: public_user, public: true)
+      end
+
+      get api_shots_url(updated_after: 25.minutes.ago.to_i, sort: "updated_at"), headers: auth_headers(user), as: :json
+      assert_response :success
+
+      json_response = response.parsed_body
+      assert_equal user.id, json_response["user_id"]
+      assert_equal [newer_shot.id], json_response["data"].pluck("id")
+    end
+
+    test "index rejects non-unix updated_after values" do
+      get api_shots_url(updated_after: "2026-06-07T00:00:00Z"), headers: auth_headers(user), as: :json
+
+      assert_response :unprocessable_content
+      assert_equal "updated_after must be a Unix timestamp in seconds", response.parsed_body["error"]
     end
 
     test "index returns non-premium shots for non-premium user" do
@@ -87,20 +135,49 @@ module Api
     end
 
     test "show returns shot data" do
-      shot = FactoryBot.create(:shot, user:)
+      shot = FactoryBot.create(:shot, user:, private_notes: "Only for me")
 
-      get api_shot_url(shot), as: :json
+      get api_shot_url(shot), headers: auth_headers(user), as: :json
       assert_response :success
 
       json_response = response.parsed_body
       assert_equal shot.id, json_response["id"]
       expected_keys = %w[
         barista bean_brand bean_notes bean_type bean_weight brewdata drink_ey drink_tds drink_weight duration
-        espresso_enjoyment espresso_notes grinder_model grinder_setting id profile_title roast_date roast_level
-        start_time tags updated_at user_id
+        espresso_enjoyment espresso_notes grinder_model grinder_setting id private_notes profile_title roast_date
+        roast_level start_time tags updated_at user_id
       ]
       assert_equal expected_keys.sort, json_response.keys.sort
       assert_equal shot.updated_at.to_i, json_response["updated_at"]
+      assert_equal "Only for me", json_response["private_notes"]
+    end
+
+    test "show returns tasting assessment data when present" do
+      shot = FactoryBot.create(
+        :shot,
+        user:,
+        fragrance: 1,
+        aroma: 2,
+        flavor: 3,
+        aftertaste: 4,
+        acidity: 5,
+        bitterness: 6,
+        sweetness: 7,
+        mouthfeel: 8
+      )
+
+      get api_shot_url(shot), headers: auth_headers(user), as: :json
+      assert_response :success
+
+      json_response = response.parsed_body
+      assert_equal 1, json_response["fragrance"]
+      assert_equal 2, json_response["aroma"]
+      assert_equal 3, json_response["flavor"]
+      assert_equal 4, json_response["aftertaste"]
+      assert_equal 5, json_response["acidity"]
+      assert_equal 6, json_response["bitterness"]
+      assert_equal 7, json_response["sweetness"]
+      assert_equal 8, json_response["mouthfeel"]
     end
 
     test "show returns shot data in beanconqueror format" do
@@ -117,20 +194,31 @@ module Api
     end
 
     test "show returns shot data in decent format for unknown format" do
-      shot = FactoryBot.create(:shot, user:)
+      shot = FactoryBot.create(:shot, user:, private_notes: "Only for me")
 
-      get api_shot_url(shot), params: {format: "unknown"}, as: :json
+      get api_shot_url(shot), params: {format: "unknown"}, headers: auth_headers(user), as: :json
       assert_response :success
 
       json_response = response.parsed_body
       assert_equal shot.id, json_response["id"]
       expected_keys = %w[
         barista bean_brand bean_notes bean_type bean_weight brewdata drink_ey drink_tds drink_weight duration
-        espresso_enjoyment espresso_notes grinder_model grinder_setting id profile_title roast_date roast_level
-        start_time tags updated_at user_id
+        espresso_enjoyment espresso_notes grinder_model grinder_setting id private_notes profile_title roast_date
+        roast_level start_time tags updated_at user_id
       ]
       assert_equal expected_keys.sort, json_response.keys.sort
       assert_equal shot.updated_at.to_i, json_response["updated_at"]
+      assert_equal "Only for me", json_response["private_notes"]
+    end
+
+    test "show does not expose private notes to other users" do
+      shot = FactoryBot.create(:shot, user:, private_notes: "Only for me")
+
+      get api_shot_url(shot), headers: auth_headers(public_user), as: :json
+      assert_response :success
+
+      json_response = response.parsed_body
+      assert_not_includes json_response.keys, "private_notes"
     end
 
     test "show returns 404 for non-existent shot" do
@@ -238,10 +326,127 @@ module Api
       assert_includes json_response["error"], "Could not save the provided file"
     end
 
+    test "update returns updated shot for JSON request" do
+      shot = FactoryBot.create(:shot, user:, profile_title: "Old title")
+
+      patch api_shot_url(shot), headers: auth_headers(user), params: {shot: {profile_title: "New title"}}, as: :json
+
+      assert_response :success
+      assert_match "application/json", response.media_type
+
+      json_response = response.parsed_body
+      assert_equal "New title", json_response["profile_title"]
+    end
+
+    test "update authorizes with shot policy" do
+      shot = FactoryBot.create(:shot, user:)
+
+      assert_authorized_to(:update?, shot, with: ShotPolicy) do
+        patch api_shot_url(shot), headers: auth_headers(user), params: {shot: {profile_title: "New title"}}, as: :json
+      end
+    end
+
+    test "update rejects non-json request" do
+      shot = FactoryBot.create(:shot, user:)
+
+      patch api_shot_url(shot), headers: auth_headers(user).merge("CONTENT_TYPE" => "application/x-www-form-urlencoded"), params: {shot: {profile_title: "New title"}}
+
+      assert_response :unprocessable_content
+      json_response = response.parsed_body
+      assert_equal "Request must be JSON.", json_response["error"]
+    end
+
+    test "update allows shot metadata fields for premium users" do
+      premium_user = FactoryBot.create(:user, :premium, :with_shot_metadata)
+      shot = FactoryBot.create(:shot, user: premium_user)
+
+      patch api_shot_url(shot), headers: auth_headers(premium_user), params: {shot: {metadata: {"Portafilter basket" => "IMS"}}}, as: :json
+
+      assert_response :success
+      assert_equal({"Portafilter basket" => "IMS"}, shot.reload.metadata)
+    end
+
+    test "update rejects non-owner" do
+      shot = FactoryBot.create(:shot)
+
+      patch api_shot_url(shot), headers: auth_headers(user), params: {shot: {profile_title: "New title"}}, as: :json
+
+      assert_response :forbidden
+      assert_equal "You are not authorized to perform this action.", response.parsed_body["error"]
+    end
+
+    test "update allows tasting assessment fields for premium users" do
+      premium_user = FactoryBot.create(:user, :premium)
+      shot = FactoryBot.create(:shot, user: premium_user)
+
+      patch api_shot_url(shot), headers: auth_headers(premium_user), params: {shot: {fragrance: 10, aroma: 9, flavor: 12, aftertaste: 11, acidity: 7, bitterness: 6, sweetness: 8, mouthfeel: 13}}, as: :json
+
+      assert_response :success
+      shot.reload
+      assert_equal 10, shot.fragrance
+      assert_equal 9, shot.aroma
+      assert_equal 12, shot.flavor
+      assert_equal 11, shot.aftertaste
+      assert_equal 7, shot.acidity
+      assert_equal 6, shot.bitterness
+      assert_equal 8, shot.sweetness
+      assert_equal 13, shot.mouthfeel
+    end
+
+    test "update rejects shot metadata fields for non-premium users" do
+      shot = FactoryBot.create(:shot, user:)
+
+      patch api_shot_url(shot), headers: auth_headers(user), params: {shot: {metadata: {"Portafilter basket" => "IMS"}}}, as: :json
+
+      assert_response :bad_request
+      assert_empty shot.reload.metadata
+    end
+
+    test "update rejects tasting assessment fields for non-premium users" do
+      shot = FactoryBot.create(:shot, user:)
+
+      patch api_shot_url(shot), headers: auth_headers(user), params: {shot: {fragrance: 10}}, as: :json
+
+      assert_response :bad_request
+      assert_nil shot.reload.fragrance
+    end
+
+    test "basic auth does not create a persisted session or set a session cookie" do
+      FactoryBot.create(:shot, user:, public: true)
+
+      assert_no_difference "Session.count" do
+        get api_shots_url, headers: auth_headers(user), as: :json
+      end
+
+      assert_response :success
+      assert_not_includes response.headers["Set-Cookie"].to_s, "session_id="
+    end
+
+    test "bearer auth does not create a persisted session or set a session cookie" do
+      token = create_access_token_for(user)
+      FactoryBot.create(:shot, user:, public: true)
+
+      assert_no_difference "Session.count" do
+        get api_shots_url, headers: bearer_headers(token), as: :json
+      end
+
+      assert_response :success
+      assert_not_includes response.headers["Set-Cookie"].to_s, "session_id="
+    end
+
     private
 
     def auth_headers(user)
       {"HTTP_AUTHORIZATION" => ActionController::HttpAuthentication::Basic.encode_credentials(user.email, "password")}
+    end
+
+    def bearer_headers(token)
+      {"Authorization" => "Bearer #{token.token}"}
+    end
+
+    def create_access_token_for(user)
+      application = Doorkeeper::Application.create!(name: "Test App", owner: user, redirect_uri: "urn:ietf:wg:oauth:2.0:oob")
+      Doorkeeper::AccessToken.create!(application:, resource_owner_id: user.id, scopes: "read write upload", expires_in: 1.week)
     end
   end
 end

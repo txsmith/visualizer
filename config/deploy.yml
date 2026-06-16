@@ -5,16 +5,18 @@ image: miharekar/visualizer
 servers:
   web:
     - hvapp
+    - hvapp2
   job:
     hosts:
       - hvapp
     cmd: bin/jobs
 
 proxy:
-  ssl: true
+  ssl: false
   hosts:
     - visualizer.coffee
     - www.visualizer.coffee
+    - apidocs.visualizer.coffee
 
 registry:
   server: ghcr.io
@@ -23,7 +25,9 @@ registry:
     - KAMAL_REGISTRY_PASSWORD
 
 builder:
-  arch: arm64
+  arch:
+    - arm64
+    - amd64
 
 env:
   secret:
@@ -38,8 +42,7 @@ aliases:
   console: app exec --interactive --reuse "bin/rails console"
   shell: app exec --interactive --reuse "bash"
   logs: app logs -f
-  dbc: accessory exec postgres --interactive --reuse "psql -U visualizer -d visualizer_production"
-  dbc18: accessory exec postgres18 --interactive --reuse "psql -U visualizer -d visualizer_production"
+  dbc: accessory exec postgres18 --interactive --reuse "psql -U visualizer -d visualizer_production"
 
 volumes:
   - "visualizer_storage:/rails/storage"
@@ -48,7 +51,7 @@ asset_path: /rails/public/assets
 
 accessories:
   postgres18:
-    image: postgres:18
+    image: postgres:18.3
     host: hvdb
     port: 5440:5432
     env:
@@ -60,10 +63,12 @@ accessories:
     directories:
       - data:/var/lib/postgresql
     options:
+      security-opt:
+        - seccomp=/root/seccomp-postgres-io-uring.json
       shm-size: 3g
 
   pg_backup:
-    image: miharekar/postgres-backup-s3:18.0
+    image: miharekar/postgres-backup-s3:18.3
     host: hvdb
     env:
       clear:
@@ -80,15 +85,17 @@ accessories:
         - POSTGRES_PASSWORD
         - S3_ACCESS_KEY_ID
         - S3_SECRET_ACCESS_KEY
-        - PASSPHRASE:ENCRYPTION_PASSWORD
     options:
       network: ipv6-network
 
   dozzle:
-    image: amir20/dozzle:v8.14
+    image: amir20/dozzle:latest
     hosts:
       - hvapp
+      - hvapp2
       - hvdb
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     port: "127.0.0.1:3200:8080"
+    options:
+      pull: always

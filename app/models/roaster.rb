@@ -25,7 +25,7 @@ class Roaster < ApplicationRecord
   end
 
   def to_api_json
-    attributes.slice(*%w[id name website]).tap do |json|
+    attributes.slice(*%w[id name website canonical_roaster_id]).tap do |json|
       json["image_url"] = image&.url if image.attached?
     end
   end
@@ -33,7 +33,7 @@ class Roaster < ApplicationRecord
   private
 
   def update_shots
-    ActiveJob.perform_all_later(coffee_bags.pluck(:id).map { |id| RefreshCoffeeBagFieldsOnShotsJob.new(CoffeeBag.new(id:)) })
+    CoffeeBag.refresh_shot_values_later_bulk(coffee_bags.select(:id))
   end
 end
 
@@ -43,7 +43,7 @@ end
 # Database name: primary
 #
 #  id                   :uuid             not null, primary key
-#  name                 :string
+#  name                 :string           not null
 #  website              :string
 #  created_at           :datetime         not null
 #  updated_at           :datetime         not null

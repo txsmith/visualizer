@@ -1,11 +1,13 @@
 class Shot < ApplicationRecord
+  prepend MemoWise
   include ShotPresenter
   include Airtablable
   include Jsonable
   include DateParseable
 
   DAILY_LIMIT = 50
-  LIST_ATTRIBUTES = %i[id coffee_bag_id start_time profile_title user_id bean_weight drink_weight drink_tds drink_tds drink_ey espresso_enjoyment barista bean_brand bean_type duration grinder_model grinder_setting roast_level roast_date].freeze
+  TASTING_ASSESSMENT_ATTRIBUTES = %i[fragrance aroma flavor aftertaste acidity bitterness sweetness mouthfeel].freeze
+  LIST_ATTRIBUTES = %i[id user_id start_time updated_at profile_title bean_weight drink_weight drink_tds drink_ey espresso_enjoyment barista bean_brand bean_type duration grinder_model grinder_setting].freeze
 
   belongs_to :user, optional: true, touch: true
   belongs_to :coffee_bag, optional: true
@@ -21,15 +23,18 @@ class Shot < ApplicationRecord
   end
 
   validates :start_time, :sha, :user, presence: true
+  validates(*TASTING_ASSESSMENT_ATTRIBUTES, numericality: {only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 15}, allow_nil: true)
   validate :daily_limit, on: :create
 
   before_validation :refresh_coffee_bag_fields, if: -> { coffee_bag_id_changed? || canonical_coffee_bag_id_changed? }
   broadcasts_to ->(shot) { [shot.user, :shots] }, inserts_by: :prepend, locals: {user_override: true}
+  after_commit :populate_dropdown_values
   after_create_commit :send_web_push_notification
+  after_create_commit :send_email_notification
 
   scope :visible, -> { where(public: true) }
   scope :visible_or_owned_by_id, ->(user_id) { user_id ? visible.or(where(user_id:)) : visible }
-  scope :for_list, -> { select(LIST_ATTRIBUTES).includes(:tags, coffee_bag: :roaster) }
+  scope :for_list, -> { select(LIST_ATTRIBUTES).includes(:user, :tags, image_attachment: :blob) }
   scope :by_start_time, -> { order(start_time: :desc) }
   scope :premium, -> { where(created_at: ..1.month.ago) }
   scope :non_premium, -> { where(created_at: 1.month.ago..) }
@@ -72,6 +77,10 @@ class Shot < ApplicationRecord
     parsed_roast_date&.strftime("%Y-%m-%dT%H:%M:%SZ")
   end
 
+  memo_wise def days_frozen
+    coffee_bag.days_in_freezer(up_to: start_time.to_date) if coffee_bag
+  end
+
   def tag_list=(value)
     return unless user.premium?
 
@@ -92,9 +101,20 @@ class Shot < ApplicationRecord
   end
 
   def send_web_push_notification
-    user&.push_subscriptions&.each do |push_subscription|
+    user.push_subscriptions&.each do |push_subscription|
       WebPushJob.perform_later(push_subscription, title: "New Shot", body: "See your new #{profile_title} shot 👀", path: "/shots/#{id}")
     end
+  end
+
+  def send_email_notification
+    return unless user.premium?
+    return unless user.notify?(:shot_uploaded)
+
+    UserMailer.with(user:, shot: self).shot_uploaded.deliver_later
+  end
+
+  def populate_dropdown_values
+    PopulateDropdownValuesJob.perform_later(user:)
   end
 end
 
@@ -104,27 +124,35 @@ end
 # Database name: primary
 #
 #  id                      :uuid             not null, primary key
+#  acidity                 :integer
+#  aftertaste              :integer
+#  aroma                   :integer
 #  barista                 :string
 #  bean_brand              :string
 #  bean_notes              :text
 #  bean_type               :string
 #  bean_weight             :string
+#  bitterness              :integer
 #  drink_ey                :string
 #  drink_tds               :string
 #  drink_weight            :string
 #  duration                :float
 #  espresso_enjoyment      :integer
 #  espresso_notes          :text
+#  flavor                  :integer
+#  fragrance               :integer
 #  grinder_model           :string
 #  grinder_setting         :string
 #  metadata                :jsonb
+#  mouthfeel               :integer
 #  private_notes           :text
 #  profile_title           :string
-#  public                  :boolean
+#  public                  :boolean          default(FALSE), not null
 #  roast_date              :string
 #  roast_level             :string
-#  sha                     :string
-#  start_time              :datetime
+#  sha                     :string           not null
+#  start_time              :datetime         not null
+#  sweetness               :integer
 #  created_at              :datetime         not null
 #  updated_at              :datetime         not null
 #  airtable_id             :string
@@ -142,7 +170,7 @@ end
 #  index_shots_on_created_at               (created_at)
 #  index_shots_on_sha                      (sha)
 #  index_shots_on_start_time               (start_time)
-#  index_shots_on_user_id                  (user_id)
+#  index_shots_on_user_id_and_start_time   (user_id,start_time)
 #
 # Foreign Keys
 #

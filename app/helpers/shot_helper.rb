@@ -1,12 +1,51 @@
 module ShotHelper
+  def shot_copyable_label(form, attribute, text = nil, &block)
+    tag.div(class: "flex justify-between items-center gap-2") do
+      concat form.label(attribute, text, class: "standard-label")
+      concat tag.div(class: "flex items-center gap-2") {
+        concat capture(&block) if block_given?
+        concat link_to("Revert", "#", class: "hidden text-sm font-light standard-link text-neutral-500 dark:text-neutral-400", data: {action: "click->shot-copier#rollback", revert_for: form.field_id(attribute)})
+      }
+    end
+  end
+
+  def shot_copyable_label_tag(label_for, revert_for, text)
+    tag.div(class: "flex justify-between items-center gap-2") do
+      concat label_tag(label_for, text, class: "standard-label")
+      concat tag.div(class: "flex items-center gap-2") {
+        concat link_to("Revert", "#", class: "hidden text-sm font-light standard-link text-neutral-500 dark:text-neutral-400", data: {action: "click->shot-copier#rollbackTags", revert_for:})
+      }
+    end
+  end
+
+  def tasting_assessment_categories
+    Shot::TASTING_ASSESSMENT_ATTRIBUTES.map { it.to_s.humanize }
+  end
+
+  def tasting_assessment_series(shot, name:)
+    values = Shot::TASTING_ASSESSMENT_ATTRIBUTES.map { |attribute| shot.public_send(attribute).to_i }
+    return if values.all?(0)
+
+    {name:, data: values}
+  end
+
   def metadata_pair(key, value)
-    value = value.to_s
-    return if value.blank? || value == "0" || value == "UNKNOWN"
+    value = brewdata_input_value(value)
+    return unless value
 
     tag.tr do
       concat tag.td(key, class: "whitespace-nowrap")
-      concat tag.td(value)
+      concat tag.td(value, class: "wrap-anywhere")
     end
+  end
+
+  def brewdata_input_value(value)
+    return if value.is_a?(Hash) || value.is_a?(Array)
+
+    value_string = value.to_s
+    return if value_string.blank? || value_string == "0" || value_string == "UNKNOWN"
+
+    value_string
   end
 
   def meta_description(shot)

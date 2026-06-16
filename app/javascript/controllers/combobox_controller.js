@@ -6,9 +6,10 @@ export default class extends Controller {
 
   static values = {
     allowCustom: { type: Boolean, default: false },
-    activeClasses: { type: Array, default: ["bg-oxford-blue-400", "dark:bg-oxford-blue-700", "text-white"] },
+    activeClasses: { type: Array, default: ["bg-oxford-blue-100", "dark:bg-oxford-blue-600"] },
     inactiveClasses: { type: Array, default: ["text-neutral-700", "dark:text-neutral-300"] },
     hiddenClass: { type: String, default: "hidden" },
+    preserveOrder: { type: Boolean, default: false },
     selectedClass: { type: String, default: "is-selected" }
   }
 
@@ -79,7 +80,9 @@ export default class extends Controller {
 
   filter() {
     this.show()
-    const sortedMatches = matchSorter(this.allItems, this.inputTarget.value, { keys: [item => item.dataset.name] })
+    const options = { keys: [item => item.dataset.name] }
+    if (this.preserveOrderValue) options.sorter = matches => matches.sort((a, b) => a.index - b.index)
+    const sortedMatches = matchSorter(this.allItems, this.inputTarget.value, options)
 
     const matchesHtml = sortedMatches.map(el => this.listTarget.appendChild(el).outerHTML).join("")
 
@@ -99,9 +102,21 @@ export default class extends Controller {
       this.active = event.currentTarget
     }
 
-    let active = this.getActive()
+    const active = this.getActive()
     if (!active) return
 
+    this.applySelection(active, event)
+  }
+
+  selectById(id) {
+    const selectedItem = this.allItems.find(item => item.dataset.id === id)
+    if (!selectedItem) return
+
+    this.applySelection(selectedItem, { preventDefault() {}, stopPropagation() {} })
+  }
+
+  applySelection(active, event) {
+    this.active = active
     if (active !== this.selected) {
       this.selected = active
       this.inputTarget.value = this.selected.dataset.name
@@ -109,6 +124,7 @@ export default class extends Controller {
       this.hiddenInputTarget.dispatchEvent(new Event("change"))
     }
 
+    this.markAllAsUnselected()
     this.hide(event)
   }
 

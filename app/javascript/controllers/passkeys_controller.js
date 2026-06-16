@@ -1,29 +1,39 @@
 import { Controller } from "@hotwired/stimulus"
+import { appsignal } from "controllers/application"
 
 export default class extends Controller {
   static values = { autologin: Boolean }
 
   async connect() {
     if (this.autologinValue && (await this.conditionalAvailable())) {
-      try {
-        await this.signIn({ mediation: "conditional" })
-      } catch {}
+      await this.signIn({ mediation: "conditional" })
     }
   }
 
-  async register(e) {
-    e.preventDefault()
-    const opts = await this.postJSON("/passkeys/options", {})
-    const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(opts)
-    const cred = await navigator.credentials.create({ publicKey })
-    if (!cred) return
+  async register() {
+    if (typeof PublicKeyCredential?.parseCreationOptionsFromJSON !== "function") {
+      this.showNotification("passkey-error")
+      return
+    }
 
-    const nickname = prompt("Name this passkey", "Passkey")
-    await this.postJSON("/passkeys", this.buildPayload(cred, { nickname }))
+    try {
+      const opts = await this.postJSON("/passkeys/options", {})
+      const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(opts)
+      const cred = await navigator.credentials.create({ publicKey })
+      if (!cred) return
 
-    const c = document.getElementById("notifications-container")
-    const tpl = document.getElementById("passkey-success")
-    c.insertAdjacentHTML("beforeend", tpl.innerHTML)
+      const nickname = prompt("Name this passkey", "Passkey")
+      await this.postJSON("/passkeys", this.buildPayload(cred, { nickname }))
+
+      this.showNotification("passkey-success")
+    } catch (error) {
+      if (this.duplicateRegistrationError(error)) return this.showNotification("passkey-already-registered")
+      if (this.expectedWebAuthnError(error)) return
+      if (this.expectedPasskeyRequestError(error)) return this.showNotification("passkey-error")
+      appsignal.sendError(error)
+      console.error("Passkey registration failed", error)
+      this.showNotification("passkey-error")
+    }
   }
 
   async buttonSignIn() {
@@ -31,28 +41,44 @@ export default class extends Controller {
   }
 
   async signIn({ mediation }) {
-    const opts = await this.postJSON("/passkeys/sign_in", {})
-    const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(opts)
-
-    if (this.getAbortController) this.getAbortController.abort()
-    this.getAbortController = new AbortController()
-
-    let cred
-    try {
-      cred = await navigator.credentials.get({ publicKey, mediation, signal: this.getAbortController.signal })
-    } catch (err) {
-      if (err?.name === "AbortError") return
-      throw err
+    if (typeof PublicKeyCredential?.parseRequestOptionsFromJSON !== "function") {
+      this.showNotification("passkey-error")
+      return
     }
-    if (!cred) return
+
+    if (this.signInInProgress) {
+      if (mediation === "conditional") return
+      if (this.getAbortController) this.getAbortController.abort()
+    }
+
+    this.signInInProgress = true
 
     try {
+      const opts = await this.postJSON("/passkeys/sign_in", {})
+      const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(opts)
+
+      if (this.getAbortController) this.getAbortController.abort()
+      this.getAbortController = new AbortController()
+
+      const cred = await navigator.credentials.get({
+        publicKey,
+        mediation,
+        signal: this.getAbortController.signal
+      })
+
+      if (!cred) return
+
       const res = await this.postJSON("/passkeys/callback", this.buildPayload(cred))
       if (res?.redirect_to) window.location.href = res.redirect_to
-    } catch {
-      const c = document.getElementById("notifications-container")
-      const tpl = document.getElementById("passkey-error")
-      c.insertAdjacentHTML("beforeend", tpl.innerHTML)
+    } catch (error) {
+      if (this.expectedWebAuthnError(error)) return
+      if (this.expectedPasskeyRequestError(error)) return this.showNotification("passkey-error")
+
+      appsignal.sendError(error)
+      console.error("Passkey sign-in failed", error)
+      this.showNotification("passkey-error")
+    } finally {
+      this.signInInProgress = false
     }
   }
 
@@ -99,6 +125,18 @@ export default class extends Controller {
     }
   }
 
+  expectedWebAuthnError(error) {
+    return ["AbortError", "NotAllowedError", "OperationError"].includes(error?.name)
+  }
+
+  expectedPasskeyRequestError(error) {
+    return error?.name === "PasskeyRequestError"
+  }
+
+  duplicateRegistrationError(error) {
+    return error?.name === "InvalidStateError"
+  }
+
   async postJSON(url, body) {
     const res = await fetch(url, {
       method: "POST",
@@ -110,8 +148,25 @@ export default class extends Controller {
       },
       body: JSON.stringify(body)
     })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.error || res.statusText)
+
+    const text = await res.text()
+    const contentType = res.headers.get("content-type") || ""
+    const data = text && contentType.includes("application/json") ? JSON.parse(text) : {}
+
+    if (!res.ok) {
+      const error = new Error(text)
+      error.name = "PasskeyRequestError"
+      error.status = res.status
+      error.data = data
+      throw error
+    }
+
     return data
+  }
+
+  showNotification(templateId) {
+    const container = document.getElementById("notifications-container")
+    const template = document.getElementById(templateId)
+    if (container && template) container.insertAdjacentHTML("beforeend", template.innerHTML)
   }
 }

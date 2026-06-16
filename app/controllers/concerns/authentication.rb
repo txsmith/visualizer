@@ -3,10 +3,15 @@ module Authentication
 
   included do
     before_action :resume_session
+    before_action :tag_request
     helper_method :authenticated?
   end
 
   private
+
+  def default_path
+    authenticated? ? shots_path : community_index_path
+  end
 
   def authenticated?
     resume_session
@@ -36,14 +41,18 @@ module Authentication
   end
 
   def start_new_session_for(user)
-    user.sessions.create!(user_agent: request.user_agent, ip_address: request.remote_ip).tap do |session|
-      Current.session = session
-      cookies.signed.permanent[:session_id] = {value: session.id, httponly: true, same_site: :lax}
+    user.sessions.find_or_create_by!(user_agent: request.user_agent, ip_address: request.headers["CF-Connecting-IP"]).tap do
+      Current.session = it
+      cookies.signed.permanent[:session_id] = {value: it.id, httponly: true, same_site: :lax}
     end
   end
 
   def terminate_session
     Current.session.destroy
     cookies.delete(:session_id)
+  end
+
+  def tag_request
+    Appsignal.add_tags(email: Current.user&.email, user_id: Current.user&.id, remote_ip: request.remote_ip, cloudflare_ip: request.headers["CF-Connecting-IP"], hetzner_lb: request.headers["X-Forwarded-For"])
   end
 end

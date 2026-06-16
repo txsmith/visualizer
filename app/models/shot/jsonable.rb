@@ -3,10 +3,14 @@ class Shot
     extend ActiveSupport::Concern
 
     ALLOWED_ATTRIBUTES = %w[id duration profile_title user_id drink_tds drink_ey espresso_enjoyment bean_weight drink_weight grinder_model grinder_setting bean_brand bean_type roast_date espresso_notes roast_level bean_notes barista].freeze
-    ALLOWED_FORMATS = %w[beanconqueror decent].freeze
+    FORMAT_METHODS = {
+      "beanconqueror" => :beanconqueror_json,
+      "default" => :default_json,
+      "decent" => :default_json
+    }.freeze
 
     def to_api_json(format:, **options)
-      method = ALLOWED_FORMATS.include?(format) ? :"#{format}_json" : :decent_json
+      method = FORMAT_METHODS.fetch(format, :default_json)
       public_send(method, **options)
     end
 
@@ -33,10 +37,10 @@ class Shot
       json.compact
     end
 
-    def decent_json(include_information:)
+    def default_json(include_information:)
       json = attributes.slice(*ALLOWED_ATTRIBUTES)
       add_brew_data(json) if include_information
-      json.merge(visualizer_attributes.slice(*%i[start_time updated_at user_name metadata tags profile_url image_url roaster_id coffee_bag_id]))
+      json.merge(visualizer_attributes.slice(*%i[start_time updated_at user_name metadata tags profile_url image_url roaster_id coffee_bag_id private_notes fragrance aroma flavor aftertaste acidity bitterness sweetness mouthfeel]))
     end
 
     private
@@ -48,6 +52,14 @@ class Shot
         updated_at: updated_at.to_i,
         duration:,
         espresso_enjoyment:,
+        fragrance:,
+        aroma:,
+        flavor:,
+        aftertaste:,
+        acidity:,
+        bitterness:,
+        sweetness:,
+        mouthfeel:,
         espresso_notes:,
         bean_notes:,
         barista:,
@@ -59,7 +71,8 @@ class Shot
 
       attributes[:start_time] = start_time unless user&.hide_shot_times
       attributes[:user_name] = user.display_name if user&.public?
-      attributes[:profile_url] = Rails.application.routes.url_helpers.api_shot_profile_url(self) if information&.tcl_profile_fields.present?
+      attributes[:private_notes] = private_notes if Current.user == user
+      attributes[:profile_url] = Rails.application.routes.url_helpers.api_shot_profile_url(self) if information&.has_profile?
       attributes[:image_url] = image.url if image.attached?
 
       attributes.compact
