@@ -1,10 +1,11 @@
 class OpenAi
   API_ENDPOINT = "https://api.openai.com/v1/responses".freeze
   API_KEY = ENV["OPEN_AI_API_KEY"] || Rails.application.credentials.dig(:open_ai, :api_key)
-  CONFIG = YAML.load_file(Rails.root.join("config", "openai_prompt.yml")).deep_symbolize_keys.freeze
+  CONFIG = YAML.load_file(Rails.root.join("config/openai_prompt.yml")).deep_symbolize_keys.freeze
 
   def message(content, attempt: 1)
     raise "OpenAI API key not configured" if API_KEY.blank?
+
     uri = URI(API_ENDPOINT)
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
