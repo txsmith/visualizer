@@ -38,6 +38,33 @@
             <%= f.label :skin, class: "standard-label" %>
             <%= f.select :skin, ["Light", "Dark", "System"], {}, class: "mt-1 standard-input" %>
           </div>
+          <div class="col-span-3 sm:col-span-2" data-controller="meticulous-settings">
+            <div class="flex items-start">
+              <div class="flex items-center h-5">
+                <%= f.check_box :meticulous_enabled, class: "standard-checkbox size-4 cursor-pointer", data: { "meticulous-settings-target": "toggle", action: "meticulous-settings#toggleEnabled" } %>
+              </div>
+              <div class="ml-3 text-sm">
+                <%= f.label :meticulous_enabled, "Meticulous integration", class: "font-medium text-neutral-700 dark:text-neutral-300" %>
+                <p class="text-neutral-500 dark:text-neutral-400">
+                  Import shots directly from your Meticulous machine on the upload page.
+                </p>
+              </div>
+            </div>
+            <div class="mt-3 <%= "hidden" unless profile.meticulous_enabled %>" data-meticulous-settings-target="config">
+              <%= f.label :meticulous_url, "Meticulous machine URL", class: "standard-label" %>
+              <div class="flex gap-2 items-center mt-1">
+                <%= f.url_field :meticulous_url, placeholder: "https://meticulous.local", class: "grow standard-input", autocomplete: "off", data: { "meticulous-settings-target": "machineUrl" } %>
+                <button type="button" data-action="meticulous-settings#test" data-meticulous-settings-target="button"
+                        class="py-2 px-3 whitespace-nowrap button-white">
+                  Test
+                </button>
+              </div>
+              <p class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                Address of your Meticulous machine on the local network.
+              </p>
+              <p class="mt-1 text-sm" data-meticulous-settings-target="status"></p>
+            </div>
+          </div>
           <div class="col-span-3 space-y-1">
             <div class="flex items-start">
               <div class="flex items-center h-5">

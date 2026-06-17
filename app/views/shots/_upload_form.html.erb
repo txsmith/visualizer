@@ -33,6 +33,58 @@
             </div>
           </div>
         <% end %>
+        <% if Current.user.meticulous_enabled %>
+        <div class="mt-3" data-controller="meticulous-import"
+             data-meticulous-import-submit-url-value="<%= shots_path %>"
+             data-meticulous-import-machine-url-value="<%= Current.user.meticulous_url %>">
+          <div class="flex gap-2 items-center">
+            <div class="h-px grow bg-neutral-200 dark:bg-neutral-700"></div>
+            <span class="text-xs tracking-wide uppercase text-neutral-400">or</span>
+            <div class="h-px grow bg-neutral-200 dark:bg-neutral-700"></div>
+          </div>
+          <button type="button" data-action="meticulous-import#openDialog"
+                  class="flex justify-center items-center py-2 px-3 mt-3 w-full whitespace-nowrap button-white">
+            Import from Meticulous
+          </button>
+          <p class="mt-2 text-sm text-neutral-500" data-meticulous-import-target="status"></p>
+
+          <dialog data-meticulous-import-target="dialog"
+                  class="p-0 m-auto w-full max-w-md rounded-lg shadow-xl backdrop:bg-black/50 bg-white dark:bg-neutral-800">
+            <div class="p-4">
+              <div class="flex justify-between items-center mb-2">
+                <h3 class="font-medium text-neutral-900 dark:text-neutral-100">Import shots from Meticulous</h3>
+                <button type="button" data-action="meticulous-import#closeDialog" aria-label="Close"
+                        class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">✕</button>
+              </div>
+              <p class="mb-2 text-sm text-neutral-500">Select the shots you want to import.</p>
+              <div data-meticulous-import-target="loading" class="hidden py-10 text-sm text-center text-neutral-500">
+                <svg class="inline animate-spin size-6 text-neutral-400" viewBox="0 0 24 24" fill="none">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path>
+                </svg>
+                <p class="mt-2" data-meticulous-import-target="loadingLabel">Loading recent shots…</p>
+              </div>
+              <div data-meticulous-import-target="list"
+                   class="overflow-y-auto max-h-80 divide-y divide-neutral-200 dark:divide-neutral-700"></div>
+
+              <template data-meticulous-import-target="rowTemplate">
+                <label class="flex gap-3 items-center py-2 px-1 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-900">
+                  <input type="checkbox" class="standard-checkbox size-4 cursor-pointer" data-meticulous-import-target="shotCheckbox">
+                  <span class="grow text-sm truncate text-neutral-900 dark:text-neutral-100" data-row="name"></span>
+                  <span class="shrink-0 mr-2 text-xs text-neutral-500" data-row="time"></span>
+                </label>
+              </template>
+
+              <p class="mt-2 text-sm" data-meticulous-import-target="dialogStatus"></p>
+              <div class="flex gap-2 justify-end mt-4">
+                <button type="button" data-action="meticulous-import#closeDialog" class="py-2 px-3 button-white">Cancel</button>
+                <button type="button" data-action="meticulous-import#importSelected" data-meticulous-import-target="importButton"
+                        class="py-2 px-3 button-terracotta">Import selected</button>
+              </div>
+            </div>
+          </dialog>
+        </div>
+        <% end %>
       </div>
     </div>
   </div>

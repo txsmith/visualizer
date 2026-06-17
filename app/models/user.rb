@@ -178,6 +178,8 @@ end
 #  github                     :string
 #  hide_shot_times            :boolean          default(FALSE), not null
 #  last_read_change           :datetime
+#  meticulous_enabled         :boolean          default(FALSE), not null
+#  meticulous_url             :string
 #  name                       :string
 #  password_digest            :string           default(""), not null
 #  premium_expires_at         :datetime
